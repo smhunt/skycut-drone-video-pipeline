@@ -95,4 +95,9 @@ npm test          # vitest — vision/director mocked; ffmpeg integration uses g
 npm run inspector # poke the server interactively
 ```
 
-Architecture and build-phase history: see `prompt_plan.md` (spec) and `progress.md` (what shipped when).
+## Documentation
+
+- **[docs/README.md](docs/README.md)** — architecture, design decisions, workspace layout, troubleshooting, extending
+- **[docs/TOOLS.md](docs/TOOLS.md)** — complete tool API reference, timeline schema, edit operations, error conventions
+- **[CHANGELOG.md](CHANGELOG.md)** — version history
+- `prompt_plan.md` (original spec) and `progress.md` (per-phase build history)
