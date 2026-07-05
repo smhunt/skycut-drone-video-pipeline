@@ -38,3 +38,16 @@
 **Deviations:** proxies drop audio (drone audio is rotor noise, dropped at render anyway); libx264 fallback when videotoolbox is absent so tests stay portable.
 
 **Next:** Phase 3 — analysis pipeline.
+
+## Phase 3 — Analysis pipeline ✅ (2026-07-05)
+
+**Shipped:**
+- `core/frames.ts` — idempotent keyframe sampling (fps=1/4, 768px JPEG q3); prefers proxy over USB original for drive resilience
+- `core/vision.ts` — Claude vision client (`claude-sonnet-4-6`, batches of 8 with timestamps, JSON-only system prompt); injectable `VisionClient` interface for tests; robust parsing (fence stripping, per-frame zod salvage, unknown movement → static, our timestamps win)
+- `core/analyze.ts` — segment merging (consecutive frames w/ same subjects+movement → scored segments, quality by mode), analysis caching per clip, >500-frame runs return a token cost estimate requiring `confirm: true`, `searchMoments` with SQL filters + free text
+- Tools: `skycut_analyze_footage(force?, confirm?)`, `skycut_search_moments`
+- 20 tests passing (vision fully mocked; live path gated on `ANTHROPIC_API_KEY`)
+
+**Deviations:** `skycut_search_moments` implemented here (spec's tool table lists it; phase table didn't assign it a phase).
+
+**Next:** Phase 4 — timeline engine.
