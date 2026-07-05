@@ -19,8 +19,20 @@ export function findVideoFiles(root: string): string[] {
     for (const entry of entries) {
       if (entry.name.startsWith(".") || entry.name.startsWith("._")) continue;
       const full = path.join(dir, entry.name);
-      if (entry.isDirectory()) walk(full);
-      else if (entry.isFile() && VIDEO_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) {
+      let isDirectory = entry.isDirectory();
+      let isFile = entry.isFile();
+      if (entry.isSymbolicLink()) {
+        // Follow symlinks (curated source folders may link to files on other drives).
+        try {
+          const stat = fs.statSync(full);
+          isDirectory = stat.isDirectory();
+          isFile = stat.isFile();
+        } catch {
+          continue; // broken link — skip
+        }
+      }
+      if (isDirectory) walk(full);
+      else if (isFile && VIDEO_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) {
         results.push(full);
       }
     }

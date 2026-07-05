@@ -37,6 +37,20 @@ describe("findVideoFiles", () => {
     expect(files.some((f) => f.endsWith("lodge.MOV"))).toBe(true);
     expect(files.some((f) => f.includes("._"))).toBe(false);
   });
+
+  it("follows symlinks and skips broken ones", () => {
+    const farm = fs.mkdtempSync(path.join(os.tmpdir(), "skycut-farm-"));
+    try {
+      fs.symlinkSync(path.join(source, "aerial-1.mp4"), path.join(farm, "linked.mp4"));
+      fs.symlinkSync(path.join(source, "day2"), path.join(farm, "linked-dir"));
+      fs.symlinkSync(path.join(source, "does-not-exist.mp4"), path.join(farm, "broken.mp4"));
+      const files = findVideoFiles(farm);
+      expect(files).toHaveLength(2); // linked.mp4 + day2/lodge.MOV via linked dir
+      expect(files.some((f) => f.endsWith("broken.mp4"))).toBe(false);
+    } finally {
+      fs.rmSync(farm, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("clipIdFor", () => {
