@@ -7,6 +7,7 @@ import { registerAnalyzeTools } from "./analyze-tools.js";
 import { registerTimelineTools } from "./timeline-tools.js";
 import { registerRenderTools } from "./render-tools.js";
 import { registerDirectorTools } from "./director-tools.js";
+import { registerStatusTools } from "./status-tools.js";
 
 export function registerAllTools(server: McpServer, deps: DepStatus): void {
   registerHealthTool(server, deps);
@@ -16,4 +17,5 @@ export function registerAllTools(server: McpServer, deps: DepStatus): void {
   registerTimelineTools(server);
   registerRenderTools(server);
   registerDirectorTools(server);
+  registerStatusTools(server);
 }

@@ -87,3 +87,12 @@
 - 45 tests passing (retry path, failure-after-2, music injection covered)
 
 **Next:** Phase 7 — wire-up + README.
+
+## Phase 7 — Wire-up + README ✅ (2026-07-05)
+
+**Shipped:**
+- `skycut_project_status` — scan/analysis/timeline/render state, drive-mount check, suggested next step
+- Full README: install, Claude Code (`claude mcp add`) + Claude Desktop stdio config, workflow walkthrough, tool table, guardrails
+- E2E happy path verified over real stdio (MCP SDK client → dist/index.js): 12 tools listed; init → scan (3 testsrc clips) → full-replacement timeline → structured edits (v2) → preview render → final render → status. All green.
+
+**Next:** Phase 8 — evals.
