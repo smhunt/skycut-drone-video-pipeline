@@ -25,3 +25,16 @@
 **Deviations:** added `SKYCUT_HOME` env override (testability) and a persisted active-project pointer so restarts keep context.
 
 **Next:** Phase 2 — scan + proxies.
+
+## Phase 2 — Scan + proxies ✅ (2026-07-05)
+
+**Shipped:**
+- `core/ffmpeg.ts` — execa wrappers; every ffmpeg/ffprobe call appended to `logs/ffmpeg.log`; `probeClip` (duration/res/fps/codec/bitrate/creation time/GPS tags); videotoolbox detection with libx264 fallback (logged)
+- `core/graph.ts` — better-sqlite3 (WAL): `clips` + `segments` tables, upserts, indexes
+- `core/scan.ts` — recursive video discovery (.mp4/.mov/.mts/.mkv, skips hidden/`._*`), stable `clip_id` = sha1(relpath:size)[:12], `manifest.json`, idempotent 720p ~5 Mbps proxies (no upscale: `scale=-2:min(720,ih)`, audio dropped)
+- `skycut_scan_footage` tool; `src/test/fixtures.ts` generates testsrc clips
+- 11 tests passing incl. scan integration with real ffmpeg
+
+**Deviations:** proxies drop audio (drone audio is rotor noise, dropped at render anyway); libx264 fallback when videotoolbox is absent so tests stay portable.
+
+**Next:** Phase 3 — analysis pipeline.
