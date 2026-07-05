@@ -96,6 +96,21 @@ export async function hasVideotoolbox(): Promise<boolean> {
   return videotoolboxAvailable;
 }
 
+let drawtextAvailable: boolean | null = null;
+
+/** Some ffmpeg builds omit drawtext (no libfreetype); overlays degrade gracefully without it. */
+export async function hasDrawtext(): Promise<boolean> {
+  if (drawtextAvailable === null) {
+    try {
+      const { stdout } = await execa("ffmpeg", ["-hide_banner", "-filters"]);
+      drawtextAvailable = / drawtext /.test(stdout as string);
+    } catch {
+      drawtextAvailable = false;
+    }
+  }
+  return drawtextAvailable;
+}
+
 /** h264 encoder args: videotoolbox on Apple Silicon, libx264 fallback (logged) elsewhere. */
 export async function h264EncoderArgs(bitrate: string): Promise<string[]> {
   return (await hasVideotoolbox())

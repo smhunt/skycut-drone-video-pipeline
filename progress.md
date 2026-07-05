@@ -63,3 +63,17 @@
 **Deviations:** `retrim` also accepts `speed`; edits accepted as an array applied in order.
 
 **Next:** Phase 5 — render pipelines.
+
+## Phase 5 — Render pipelines ✅ (2026-07-05)
+
+**Shipped:**
+- `core/render.ts` — two-stage assembly: per-clip trim/speed/normalize intermediates (uniform res/fps/yuv420p, letterbox pad), then a single filter_complex fold joining clips with `xfade` (per-clip style/duration) or `concat` (hard cuts), offsets from ffprobed intermediate durations
+- Music bed: infinite loop + `atrim` to cut length, `loudnorm I=-18`, per-timeline gain, configurable fade-out, AAC 192k
+- Text overlays via `drawtext` (centered, size/position mapped from schema) — skipped gracefully when the ffmpeg build lacks drawtext or the macOS font is missing
+- Preview: 720p h264_videotoolbox 8 Mbps from proxies (drive-optional); Final: hevc_videotoolbox `-q:v 60` `hvc1` tag from USB originals, capped at 4K, drive-mount asserted
+- Tools: `skycut_render_preview(version?)`, `skycut_render_final(version)` (version explicit, required)
+- 40 tests passing (3 render integration tests: xfade+concat+music preview, final from originals, 4K cap)
+
+**Deviations:** discovered local ffmpeg 8.1.2 build lacks `drawtext`; added runtime filter detection so overlays degrade instead of failing the render.
+
+**Next:** Phase 6 — director (`propose_cut`).
