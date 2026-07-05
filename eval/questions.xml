@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Read-only Q&A evals against the synthetic fly-in lodge fixture (src/test/synthetic.ts).
+  Each <qa> documents a natural-language question, the tool/op an agent should reach for,
+  its arguments, and the expected answer. src/test/evals.test.ts executes every entry
+  and asserts the expected values still hold.
+-->
+<evals fixture="src/test/synthetic.ts">
+  <qa id="1">
+    <question>How many clips were scanned into the project?</question>
+    <op>clip_count</op>
+    <args>{}</args>
+    <expected>5</expected>
+  </qa>
+  <qa id="2">
+    <question>How much total footage do we have, in seconds?</question>
+    <op>total_duration</op>
+    <args>{}</args>
+    <expected>395</expected>
+  </qa>
+  <qa id="3">
+    <question>How many analyzed segments are in the footage graph?</question>
+    <op>segment_count</op>
+    <args>{}</args>
+    <expected>12</expected>
+  </qa>
+  <qa id="4">
+    <question>What is the single most beautiful moment in the footage?</question>
+    <op>search_top</op>
+    <args>{}</args>
+    <expected>clip=sunset05 t_in=0 aesthetic=9.4 notes~sunset pull-back</expected>
+  </qa>
+  <qa id="5">
+    <question>Which segments show the floatplane?</question>
+    <op>search_count</op>
+    <args>{"subject":"floatplane"}</args>
+    <expected>2</expected>
+  </qa>
+  <qa id="6">
+    <question>Find the golden-hour shot of the lodge.</question>
+    <op>search_top</op>
+    <args>{"subject":"lodge","text":"golden"}</args>
+    <expected>clip=lodge02 t_in=0 aesthetic=9.1 notes~golden light on lodge roofline</expected>
+  </qa>
+  <qa id="7">
+    <question>Are there any unusable, jittery segments we should avoid?</question>
+    <op>search_count</op>
+    <args>{"stability":"jittery"}</args>
+    <expected>1</expected>
+  </qa>
+  <qa id="8">
+    <question>Which orbit shots score at least 8 on aesthetics?</question>
+    <op>search_count</op>
+    <args>{"movement":"orbit","min_aesthetic":8}</args>
+    <expected>2</expected>
+  </qa>
+  <qa id="9">
+    <question>What subject appears in the most segments?</question>
+    <op>top_subject</op>
+    <args>{}</args>
+    <expected>lodge</expected>
+  </qa>
+  <qa id="10">
+    <question>How many segments have exposure problems (over or under)?</question>
+    <op>exposure_problem_count</op>
+    <args>{}</args>
+    <expected>2</expected>
+  </qa>
+</evals>

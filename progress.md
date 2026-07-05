@@ -96,3 +96,17 @@
 - E2E happy path verified over real stdio (MCP SDK client → dist/index.js): 12 tools listed; init → scan (3 testsrc clips) → full-replacement timeline → structured edits (v2) → preview render → final render → status. All green.
 
 **Next:** Phase 8 — evals.
+
+## Phase 8 — Evals ✅ (2026-07-05)
+
+**Shipped:**
+- `eval/questions.xml` — 10 read-only Q&A pairs against the synthetic lodge fixture (clip counts, total duration, best moments, subject/movement/quality searches, exposure problems)
+- `src/test/evals.test.ts` — parses the XML and executes every entry against the fixture, so the evals are living tests (56 total tests passing)
+
+**Deviations:** made the evals executable rather than documentation-only; broke a lodge/lake subject-frequency tie in the fixture surfaced by Q9.
+
+---
+
+# ✅ All phases complete (2026-07-05)
+
+12 MCP tools, 56 passing tests, E2E happy path verified over stdio. Vision + director run live behind `ANTHROPIC_API_KEY` (mocked in tests). See README for Claude Code / Claude Desktop setup.

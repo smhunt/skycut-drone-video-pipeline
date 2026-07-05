@@ -72,7 +72,7 @@ export function createSyntheticProject(): { project: Project; home: string; sour
   ]);
   replaceSegments(db, "dock03", [
     seg(0, 25, ["dock", "boat"], "push-in", 7.9, "boats tied at the dock, morning mist"),
-    seg(25, 60, ["dock", "guests"], "static", 6.5, "guests loading gear"),
+    seg(25, 60, ["dock", "guests", "lodge"], "static", 6.5, "guests loading gear below the lodge"),
   ]);
   replaceSegments(db, "plane04", [
     seg(0, 20, ["floatplane", "lake"], "orbit", 8.6, "floatplane taxiing across the bay"),
