@@ -77,3 +77,13 @@
 **Deviations:** discovered local ffmpeg 8.1.2 build lacks `drawtext`; added runtime filter detection so overlays degrade instead of failing the render.
 
 **Next:** Phase 6 — director (`propose_cut`).
+
+## Phase 6 — Director ✅ (2026-07-05)
+
+**Shipped:**
+- `core/director.ts` — compact footage graph (top 150 segments by aesthetic + clip durations + dominant-resolution output capped at 4K), single Claude call (`claude-sonnet-4-6`), narrative-arc system prompt, JSON extraction, zod+semantic validation with ONE retry (validation errors fed back), server owns `version` and `music` (music_path param overrides anything the model emits), immutable save
+- `skycut_propose_cut(brief, duration_s, style?, music_path?)` — returns shot list; never renders
+- `src/test/synthetic.ts` — 5-clip / 12-segment fly-in lodge fixture (no media files; reused for Phase 8 evals)
+- 45 tests passing (retry path, failure-after-2, music injection covered)
+
+**Next:** Phase 7 — wire-up + README.
