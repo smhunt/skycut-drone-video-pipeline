@@ -4,10 +4,12 @@ import { registerHealthTool } from "./health.js";
 import { registerProjectTools } from "./project-tools.js";
 import { registerScanTools } from "./scan-tools.js";
 import { registerAnalyzeTools } from "./analyze-tools.js";
+import { registerTimelineTools } from "./timeline-tools.js";
 
 export function registerAllTools(server: McpServer, deps: DepStatus): void {
   registerHealthTool(server, deps);
   registerProjectTools(server);
   registerScanTools(server);
   registerAnalyzeTools(server);
+  registerTimelineTools(server);
 }

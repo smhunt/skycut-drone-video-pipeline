@@ -51,3 +51,15 @@
 **Deviations:** `skycut_search_moments` implemented here (spec's tool table lists it; phase table didn't assign it a phase).
 
 **Next:** Phase 4 — timeline engine.
+
+## Phase 4 — Timeline engine ✅ (2026-07-05)
+
+**Shipped:**
+- `schemas/timeline.ts` — zod source of truth (§6): output format, optional music bed, clips w/ speed 0.25–4 + xfade transitions, text overlays
+- `core/timeline.ts` — semantic validation (out_s>in_s, clip_id in manifest, timecodes within source, transitions shorter than adjacent clips, ±5% duration target), duration math with transition overlaps, immutable versioning (`v<N>.json`, `wx` write flag), structured edits (insert/remove/reorder/retrim/set_transition/set_music) with human-readable summaries, shot-list renderer
+- Tools: `skycut_get_timeline`, `skycut_apply_timeline_edit` (structured ops applied in order OR full replacement; result validated then saved as new version)
+- 37 tests passing (17 new)
+
+**Deviations:** `retrim` also accepts `speed`; edits accepted as an array applied in order.
+
+**Next:** Phase 5 — render pipelines.
