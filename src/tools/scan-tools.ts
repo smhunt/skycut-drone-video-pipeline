@@ -1,7 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { getActiveProject } from "../core/project.js";
 import { scanFootage } from "../core/scan.js";
-import { toolHandler, ok } from "./util.js";
+import { toolHandler, ok, progressReporter, type ToolExtra } from "./util.js";
 
 export function registerScanTools(server: McpServer): void {
   server.registerTool(
@@ -14,9 +14,9 @@ export function registerScanTools(server: McpServer): void {
         "Idempotent — re-running skips clips and proxies that already exist. The source is never modified.",
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
     },
-    toolHandler(async () => {
+    toolHandler(async (extra: ToolExtra) => {
       const project = getActiveProject();
-      const result = await scanFootage(project);
+      const result = await scanFootage(project, progressReporter(extra));
       const mins = (result.totalDurationS / 60).toFixed(1);
       let text =
         `Scanned ${result.clipCount} clips (${mins} min total). ` +

@@ -3,7 +3,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { getActiveProject } from "../core/project.js";
 import { analyzeFootage, searchMoments } from "../core/analyze.js";
 import { createClaudeVision, MOVEMENTS } from "../core/vision.js";
-import { toolHandler, ok } from "./util.js";
+import { toolHandler, ok, progressReporter } from "./util.js";
 
 export function registerAnalyzeTools(server: McpServer): void {
   server.registerTool(
@@ -21,9 +21,9 @@ export function registerAnalyzeTools(server: McpServer): void {
       },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
     },
-    toolHandler(async ({ force, confirm }) => {
+    toolHandler(async ({ force, confirm }, extra) => {
       const project = getActiveProject();
-      const result = await analyzeFootage(project, createClaudeVision(), { force, confirm });
+      const result = await analyzeFootage(project, createClaudeVision(), { force, confirm }, progressReporter(extra));
       if (result.needsConfirmation) {
         return ok(
           `Large run: ${result.pendingClips} clips → ~${result.estimatedFrames} frames ` +

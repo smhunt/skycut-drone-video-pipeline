@@ -3,6 +3,7 @@ import type { Project } from "./project.js";
 import { openDb, getClips, replaceSegments, markAnalyzed, type ClipRow, type SegmentRow } from "./graph.js";
 import { sampleFrames, estimateFrameCount, FRAME_INTERVAL_S } from "./frames.js";
 import { BATCH_SIZE, TOKENS_PER_FRAME, type FrameAnalysis, type VisionClient } from "./vision.js";
+import type { ProgressReporter } from "./progress.js";
 
 export const CONFIRM_THRESHOLD_FRAMES = 500;
 
@@ -76,7 +77,8 @@ export interface AnalyzeOptions {
 export async function analyzeFootage(
   project: Project,
   vision: VisionClient,
-  opts: AnalyzeOptions = {}
+  opts: AnalyzeOptions = {},
+  onProgress?: ProgressReporter
 ): Promise<AnalyzeEstimate | AnalyzeResult> {
   const db = openDb(project);
   try {
@@ -97,11 +99,18 @@ export async function analyzeFootage(
     let clipsAnalyzed = 0;
     const errors: string[] = [];
 
-    for (const clip of pending) {
+    for (const [clipIndex, clip] of pending.entries()) {
       try {
+        onProgress?.(clipIndex, pending.length, `analyzing ${clip.rel_path}`);
         const frames = await sampleFrames(project, clip);
         const analyses: FrameAnalysis[] = [];
         for (let i = 0; i < frames.length; i += BATCH_SIZE) {
+          // Fractional progress within a clip so many-frame clips don't look stalled.
+          onProgress?.(
+            clipIndex + i / frames.length,
+            pending.length,
+            `analyzing ${clip.rel_path} (frames ${i + 1}-${Math.min(i + BATCH_SIZE, frames.length)}/${frames.length})`
+          );
           analyses.push(...(await vision.analyzeBatch(frames.slice(i, i + BATCH_SIZE))));
         }
         replaceSegments(db, clip.clip_id, mergeIntoSegments(analyses, clip.duration_s));

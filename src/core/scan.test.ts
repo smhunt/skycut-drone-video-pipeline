@@ -85,11 +85,18 @@ describe("scanFootage", () => {
   }, 120_000);
 
   it("is idempotent — re-scan skips existing proxies and adds nothing", async () => {
-    const result = await scanFootage(project);
+    const progress: Array<[number, number, string]> = [];
+    const result = await scanFootage(project, (p, t, m) => progress.push([p, t, m]));
     expect(result.clipCount).toBe(2);
     expect(result.newClips).toBe(0);
     expect(result.proxiesBuilt).toBe(0);
     expect(result.proxiesSkipped).toBe(2);
+
+    // progress: one tick per file + the manifest step, monotonically increasing
+    expect(progress).toHaveLength(3);
+    expect(progress[0][2]).toContain("scanning");
+    expect(progress.at(-1)).toEqual([2, 2, "writing manifest"]);
+    expect(progress.every(([p, t]) => p <= t)).toBe(true);
   }, 60_000);
 
   it("logs ffmpeg commands", () => {

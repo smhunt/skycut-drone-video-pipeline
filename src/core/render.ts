@@ -5,6 +5,7 @@ import { type Project, assertSourceMounted } from "./project.js";
 import { openDb, getClip, type ClipRow } from "./graph.js";
 import { runFfmpeg, runFfprobe, hasVideotoolbox, hasDrawtext } from "./ffmpeg.js";
 import type { Timeline, TimelineClip, TextOverlay } from "../schemas/timeline.js";
+import type { ProgressReporter } from "./progress.js";
 
 export type RenderMode = "preview" | "final";
 
@@ -128,7 +129,12 @@ async function overlayFilters(overlays: TextOverlay[], fmt: OutputFormat): Promi
   });
 }
 
-export async function renderTimeline(project: Project, timeline: Timeline, mode: RenderMode): Promise<RenderResult> {
+export async function renderTimeline(
+  project: Project,
+  timeline: Timeline,
+  mode: RenderMode,
+  onProgress?: ProgressReporter
+): Promise<RenderResult> {
   if (mode === "final") assertSourceMounted(project);
   const db = openDb(project);
   const logDir = project.paths.logs;
@@ -140,9 +146,12 @@ export async function renderTimeline(project: Project, timeline: Timeline, mode:
 
   try {
     // 1. Per-clip intermediates (trim, speed, normalize).
+    // Progress: one step per intermediate + one for final assembly.
+    const totalSteps = timeline.clips.length + 1;
     const inters: Array<{ file: string; durationS: number }> = [];
     for (let i = 0; i < timeline.clips.length; i++) {
       const tClip = timeline.clips[i];
+      onProgress?.(i, totalSteps, `preparing shot ${i + 1}/${timeline.clips.length} (${tClip.label ?? tClip.id})`);
       const row = getClip(db, tClip.clip_id);
       if (!row) throw new UserError(`clip_id '${tClip.clip_id}' not in footage database — re-run skycut_scan_footage.`);
       const file = path.join(workDir, `inter_${String(i).padStart(3, "0")}.mp4`);
@@ -205,6 +214,7 @@ export async function renderTimeline(project: Project, timeline: Timeline, mode:
       project.paths.renders,
       `${timeline.project}-v${timeline.version}-${mode}.mp4`
     );
+    onProgress?.(timeline.clips.length, totalSteps, `assembling ${timeline.clips.length} shots (${mode})`);
     await runFfmpeg(
       [
         ...inputs,

@@ -4,6 +4,7 @@ import crypto from "node:crypto";
 import { type Project, assertSourceMounted } from "./project.js";
 import { probeClip, runFfmpeg, h264EncoderArgs } from "./ffmpeg.js";
 import { openDb, upsertClip, getClips, type ClipRow } from "./graph.js";
+import type { ProgressReporter } from "./progress.js";
 
 const VIDEO_EXTENSIONS = new Set([".mp4", ".mov", ".mts", ".mkv"]);
 
@@ -54,7 +55,7 @@ export interface ScanResult {
   errors: string[];
 }
 
-export async function scanFootage(project: Project): Promise<ScanResult> {
+export async function scanFootage(project: Project, onProgress?: ProgressReporter): Promise<ScanResult> {
   assertSourceMounted(project);
   const db = openDb(project);
   const logDir = project.paths.logs;
@@ -67,8 +68,9 @@ export async function scanFootage(project: Project): Promise<ScanResult> {
     const files = findVideoFiles(project.meta.sourcePath);
     const known = new Map(getClips(db).map((c) => [c.clip_id, c]));
 
-    for (const absPath of files) {
+    for (const [fileIndex, absPath] of files.entries()) {
       const relPath = path.relative(project.meta.sourcePath, absPath);
+      onProgress?.(fileIndex, files.length, `scanning ${relPath}`);
       const sizeBytes = fs.statSync(absPath).size;
       const clipId = clipIdFor(relPath, sizeBytes);
       const proxyPath = path.join(project.paths.proxies, `${clipId}.mp4`);
@@ -119,6 +121,7 @@ export async function scanFootage(project: Project): Promise<ScanResult> {
       db.prepare("UPDATE clips SET proxy_path = ? WHERE clip_id = ?").run(proxyPath, clipId);
     }
 
+    onProgress?.(files.length, files.length, "writing manifest");
     const clips = getClips(db);
     writeManifest(project, clips);
     return {

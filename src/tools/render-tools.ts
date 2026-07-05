@@ -3,7 +3,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { getActiveProject } from "../core/project.js";
 import { loadTimeline } from "../core/timeline.js";
 import { renderTimeline } from "../core/render.js";
-import { toolHandler, ok } from "./util.js";
+import { toolHandler, ok, progressReporter } from "./util.js";
 
 export function registerRenderTools(server: McpServer): void {
   server.registerTool(
@@ -18,10 +18,10 @@ export function registerRenderTools(server: McpServer): void {
       },
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
-    toolHandler(async ({ version }) => {
+    toolHandler(async ({ version }, extra) => {
       const project = getActiveProject();
       const timeline = loadTimeline(project, version);
-      const result = await renderTimeline(project, timeline, "preview");
+      const result = await renderTimeline(project, timeline, "preview", progressReporter(extra));
       return ok(
         `Preview rendered: ${result.path}\n` +
           `${result.durationS}s, ${result.width}x${result.height}, ${(result.sizeBytes / 1e6).toFixed(1)} MB. ` +
@@ -44,10 +44,10 @@ export function registerRenderTools(server: McpServer): void {
       },
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
-    toolHandler(async ({ version }) => {
+    toolHandler(async ({ version }, extra) => {
       const project = getActiveProject();
       const timeline = loadTimeline(project, version);
-      const result = await renderTimeline(project, timeline, "final");
+      const result = await renderTimeline(project, timeline, "final", progressReporter(extra));
       return ok(
         `Final render complete: ${result.path}\n` +
           `${result.durationS}s, ${result.width}x${result.height}, ${(result.sizeBytes / 1e6).toFixed(1)} MB (timeline v${version}).`,
