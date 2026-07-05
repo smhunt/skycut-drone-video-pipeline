@@ -90,8 +90,8 @@ describe("analyzeFootage (mocked vision)", () => {
   it("samples frames, builds segments, reports top subjects", async () => {
     const progress: string[] = [];
     const result = await analyzeFootage(project, mockVision, {}, (_p, _t, m) => progress.push(m));
-    expect(progress.length).toBeGreaterThanOrEqual(2); // per-clip + per-batch messages
-    expect(progress.some((m) => m.includes("analyzing"))).toBe(true);
+    expect(progress).toHaveLength(2); // one completion tick per clip
+    expect(progress.every((m) => /analyzed .+ \(\d+ frames\)/.test(m))).toBe(true);
     expect(result.needsConfirmation).toBe(false);
     if (result.needsConfirmation) return;
     expect(result.clipsAnalyzed).toBe(2);

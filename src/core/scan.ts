@@ -5,6 +5,10 @@ import { type Project, assertSourceMounted } from "./project.js";
 import { probeClip, runFfmpeg, h264EncoderArgs } from "./ffmpeg.js";
 import { openDb, upsertClip, getClips, type ClipRow } from "./graph.js";
 import type { ProgressReporter } from "./progress.js";
+import { mapConcurrent } from "./concurrency.js";
+
+/** Concurrent ffmpeg workers — M-series media engines handle several encodes at once. */
+const SCAN_CONCURRENCY = 4;
 
 const VIDEO_EXTENSIONS = new Set([".mp4", ".mov", ".mts", ".mkv"]);
 
@@ -67,10 +71,10 @@ export async function scanFootage(project: Project, onProgress?: ProgressReporte
   try {
     const files = findVideoFiles(project.meta.sourcePath);
     const known = new Map(getClips(db).map((c) => [c.clip_id, c]));
+    let completed = 0;
 
-    for (const [fileIndex, absPath] of files.entries()) {
+    await mapConcurrent(files, SCAN_CONCURRENCY, async (absPath) => {
       const relPath = path.relative(project.meta.sourcePath, absPath);
-      onProgress?.(fileIndex, files.length, `scanning ${relPath}`);
       const sizeBytes = fs.statSync(absPath).size;
       const clipId = clipIdFor(relPath, sizeBytes);
       const proxyPath = path.join(project.paths.proxies, `${clipId}.mp4`);
@@ -96,7 +100,8 @@ export async function scanFootage(project: Project, onProgress?: ProgressReporte
           newClips++;
         } catch (err) {
           errors.push(`${relPath}: ${err instanceof Error ? err.message : String(err)}`);
-          continue;
+          onProgress?.(++completed, files.length, `failed ${relPath}`);
+          return;
         }
       } else {
         // Path may have changed (drive remount) — keep abs_path fresh.
@@ -106,19 +111,31 @@ export async function scanFootage(project: Project, onProgress?: ProgressReporte
       if (fs.existsSync(proxyPath)) {
         proxiesSkipped++;
       } else {
+        // Encode to a temp name, then rename: a killed run never leaves a truncated
+        // proxy that a re-scan would mistake for complete.
+        const tmpPath = path.join(project.paths.proxies, `.tmp-${clipId}.mp4`);
         try {
           const enc = await h264EncoderArgs("5M");
           await runFfmpeg(
-            ["-i", absPath, "-vf", "scale=-2:'min(720,ih)'", ...enc, "-an", "-movflags", "+faststart", proxyPath],
+            ["-i", absPath, "-vf", "scale=-2:'min(720,ih)'", ...enc, "-an", "-movflags", "+faststart", tmpPath],
             logDir
           );
+          fs.renameSync(tmpPath, proxyPath);
           proxiesBuilt++;
         } catch (err) {
+          fs.rmSync(tmpPath, { force: true });
           errors.push(`proxy ${relPath}: ${err instanceof Error ? err.message : String(err)}`);
-          continue;
+          onProgress?.(++completed, files.length, `failed proxy ${relPath}`);
+          return;
         }
       }
       db.prepare("UPDATE clips SET proxy_path = ? WHERE clip_id = ?").run(proxyPath, clipId);
+      onProgress?.(++completed, files.length, `scanned ${relPath}`);
+    });
+
+    // Sweep any temp files from previously killed runs.
+    for (const leftover of fs.readdirSync(project.paths.proxies).filter((f) => f.startsWith(".tmp-"))) {
+      fs.rmSync(path.join(project.paths.proxies, leftover), { force: true });
     }
 
     onProgress?.(files.length, files.length, "writing manifest");

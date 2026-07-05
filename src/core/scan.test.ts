@@ -94,7 +94,7 @@ describe("scanFootage", () => {
 
     // progress: one tick per file + the manifest step, monotonically increasing
     expect(progress).toHaveLength(3);
-    expect(progress[0][2]).toContain("scanning");
+    expect(progress[0][2]).toContain("scanned");
     expect(progress.at(-1)).toEqual([2, 2, "writing manifest"]);
     expect(progress.every(([p, t]) => p <= t)).toBe(true);
   }, 60_000);
