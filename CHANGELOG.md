@@ -2,6 +2,17 @@
 
 All notable changes to SkyCut are documented here. Versioning follows [semver](https://semver.org/).
 
+## [0.2.0] - 2026-07-05
+
+### Added
+- **Chat web UI** (`npm run web`, https://dev.ecoworks.ca:3080) — local MVP, no auth: conversational agent (Claude + tool use over the SkyCut core, in-process) for proposing cuts, iterating with structured edits, and rendering; SSE streaming of tool activity and live render progress; previews/finals embed as inline video players (served from the :5502 static file server over `~/SkyCut/projects`)
+- **MCP progress notifications** on `scan_footage`, `analyze_footage`, and both render tools (`notifications/progress` with per-item messages)
+- **Parallel pipelines**: 4 concurrent proxy encoders, 3 concurrent clips in vision analysis (~3× faster on both stages)
+- Scanner follows symlinks — curated link-farm source folders work across drives
+
+### Fixed
+- Proxies encode to a temp name and rename atomically — interrupted scans can no longer leave truncated proxies that a re-scan would skip as complete
+
 ## [0.1.0] - 2026-07-05
 
 Initial release — full MVP pipeline, built in 9 phases (see `progress.md` for per-phase history).

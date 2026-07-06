@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SkyCut Chat</title>
+<style>
+  :root { --bg:#0e1116; --panel:#161b23; --border:#252c38; --text:#e6e9ee; --dim:#8b95a5; --accent:#5b9dff; }
+  * { box-sizing:border-box; margin:0; }
+  body { background:var(--bg); color:var(--text); font:15px/1.5 -apple-system,system-ui,sans-serif; height:100vh; display:flex; flex-direction:column; }
+  header { padding:14px 20px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:12px; }
+  header h1 { font-size:16px; font-weight:600; }
+  header .sub { color:var(--dim); font-size:13px; flex:1; }
+  header button { background:none; border:1px solid var(--border); color:var(--dim); border-radius:8px; padding:6px 12px; cursor:pointer; font-size:13px; }
+  header button:hover { color:var(--text); border-color:var(--dim); }
+  #log { flex:1; overflow-y:auto; padding:20px; display:flex; flex-direction:column; gap:12px; max-width:860px; width:100%; margin:0 auto; }
+  .msg { padding:10px 14px; border-radius:12px; max-width:85%; white-space:pre-wrap; }
+  .user { background:var(--accent); color:#fff; align-self:flex-end; }
+  .bot  { background:var(--panel); border:1px solid var(--border); align-self:flex-start; }
+  .tool { color:var(--dim); font-size:12.5px; font-family:ui-monospace,monospace; align-self:flex-start; padding:0 6px; }
+  .status { color:var(--dim); font-size:12.5px; align-self:flex-start; padding:0 6px; font-style:italic; }
+  .render { align-self:flex-start; width:min(640px,100%); background:var(--panel); border:1px solid var(--border); border-radius:12px; overflow:hidden; }
+  .render video { width:100%; display:block; background:#000; }
+  .render .cap { padding:8px 12px; font-size:13px; color:var(--dim); display:flex; justify-content:space-between; }
+  .render .cap a { color:var(--accent); text-decoration:none; }
+  form { display:flex; gap:10px; padding:16px 20px; border-top:1px solid var(--border); max-width:860px; width:100%; margin:0 auto; }
+  input { flex:1; background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:12px 14px; color:var(--text); font-size:15px; outline:none; }
+  input:focus { border-color:var(--accent); }
+  form button { background:var(--accent); border:0; color:#fff; border-radius:10px; padding:0 20px; font-size:15px; cursor:pointer; }
+  form button:disabled { opacity:.5; cursor:default; }
+  .hint { color:var(--dim); font-size:13px; text-align:center; padding-bottom:10px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🎬 SkyCut Chat</h1>
+  <span class="sub" id="sub">local MVP — ask for cuts, iterate, render</span>
+  <button id="reset">New chat</button>
+</header>
+<div id="log">
+  <div class="msg bot">Hey! I can build video cuts from your analyzed footage. Try:
+• "propose a 45-second cut of the calmest lake and forest moments, then preview it"
+• "show me the best floatplane shots"
+• "make shot 3 shorter in v2 and re-render"
+• "give me two versions: one energetic, one serene"</div>
+</div>
+<form id="f">
+  <input id="q" placeholder="Describe the cut you want…" autocomplete="off" autofocus>
+  <button id="send">Send</button>
+</form>
+<div class="hint">renders appear inline · previews are 720p proxies · finals only when you ask</div>
+<script>
+const log = document.getElementById("log"), q = document.getElementById("q"),
+      f = document.getElementById("f"), send = document.getElementById("send");
+
+function add(cls, text) {
+  const d = document.createElement("div");
+  d.className = cls; d.textContent = text;
+  log.appendChild(d); log.scrollTop = log.scrollHeight;
+  return d;
+}
+function addRender(ev) {
+  const d = document.createElement("div");
+  d.className = "render";
+  d.innerHTML = `<video controls preload="metadata" src="${ev.url}"></video>
+    <div class="cap"><span>v${ev.version} · ${ev.mode} · ${ev.duration_s}s · ${ev.size_mb} MB</span>
+    <a href="${ev.url}" target="_blank">open ↗</a></div>`;
+  log.appendChild(d); log.scrollTop = log.scrollHeight;
+}
+
+let statusEl = null;
+f.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const message = q.value.trim();
+  if (!message) return;
+  add("msg user", message);
+  q.value = ""; send.disabled = true; q.disabled = true;
+
+  try {
+    const res = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ message }),
+    });
+    const reader = res.body.getReader(), dec = new TextDecoder();
+    let buf = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let i;
+      while ((i = buf.indexOf("\n\n")) !== -1) {
+        const chunk = buf.slice(0, i); buf = buf.slice(i + 2);
+        if (!chunk.startsWith("data: ")) continue;
+        const ev = JSON.parse(chunk.slice(6));
+        if (ev.type === "text") { statusEl = null; add("msg bot", ev.text); }
+        else if (ev.type === "tool") { statusEl = null; add("tool", `⚙ ${ev.name}${ev.input && Object.keys(ev.input).length ? " " + JSON.stringify(ev.input).slice(0, 120) : ""}`); }
+        else if (ev.type === "status") { if (statusEl) statusEl.textContent = ev.text; else statusEl = add("status", ev.text); }
+        else if (ev.type === "render") { statusEl = null; addRender(ev); }
+      }
+    }
+  } catch (err) {
+    add("msg bot", "Connection error: " + err.message);
+  } finally {
+    send.disabled = false; q.disabled = false; q.focus();
+  }
+});
+
+document.getElementById("reset").addEventListener("click", async () => {
+  await fetch("/api/reset", { method: "POST" });
+  log.innerHTML = "";
+  add("msg bot", "Fresh chat. Same project, all timeline versions still on disk.");
+});
+</script>
+</body>
+</html>
