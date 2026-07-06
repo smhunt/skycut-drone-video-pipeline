@@ -32,7 +32,7 @@ if (!process.env.ANTHROPIC_API_KEY) {
   console.error("ANTHROPIC_API_KEY not set — start with the key in env.");
   process.exit(1);
 }
-const anthropic = new Anthropic();
+const anthropic = new Anthropic({ maxRetries: 4 }); // ride out transient API overloads
 
 const renderUrl = (absPath) =>
   `${RENDER_BASE}/${path.relative(path.join(skycutHome(), "projects"), absPath).split(path.sep).join("/")}`;
@@ -128,7 +128,9 @@ async function runTool(name, input, emit) {
       return JSON.stringify(rows.slice(0, 40));
     }
     case "propose_cut": {
-      const { timeline } = await proposeCut(project, createClaudeDirector(), input);
+      emit({ type: "status", text: `Director is composing a ${input.duration_s}s cut from the footage graph (~30-90s)…` });
+      const { timeline, attempts } = await proposeCut(project, createClaudeDirector(), input);
+      if (attempts > 1) emit({ type: "status", text: "First draft failed validation — director revised it." });
       return `Saved timeline v${timeline.version}.\n${summarizeTimeline(timeline)}`;
     }
     case "get_timeline": {
@@ -308,6 +310,7 @@ const server = https.createServer(
         });
         // emit must never throw (client may disconnect mid-render); the work continues regardless.
         const emit = (event) => {
+          if (event.type !== "ping") console.log(`[${new Date().toISOString()}] ${event.type}: ${(event.text ?? event.name ?? event.url ?? "").toString().slice(0, 140)}`);
           try {
             res.write(`data: ${JSON.stringify(event)}\n\n`);
           } catch {

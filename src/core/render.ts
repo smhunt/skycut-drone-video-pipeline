@@ -6,6 +6,10 @@ import { openDb, getClip, type ClipRow } from "./graph.js";
 import { runFfmpeg, runFfprobe, hasVideotoolbox, hasDrawtext } from "./ffmpeg.js";
 import type { Timeline, TimelineClip, TextOverlay } from "../schemas/timeline.js";
 import type { ProgressReporter } from "./progress.js";
+import { mapConcurrent } from "./concurrency.js";
+
+/** Concurrent intermediate encodes — M-series media engines handle several at once. */
+const RENDER_CONCURRENCY = 4;
 
 export type RenderMode = "preview" | "final";
 
@@ -148,16 +152,16 @@ export async function renderTimeline(
     // 1. Per-clip intermediates (trim, speed, normalize).
     // Progress: one step per intermediate + one for final assembly.
     const totalSteps = timeline.clips.length + 1;
-    const inters: Array<{ file: string; durationS: number }> = [];
-    for (let i = 0; i < timeline.clips.length; i++) {
-      const tClip = timeline.clips[i];
-      onProgress?.(i, totalSteps, `preparing shot ${i + 1}/${timeline.clips.length} (${tClip.label ?? tClip.id})`);
+    let prepared = 0;
+    const inters = await mapConcurrent(timeline.clips, RENDER_CONCURRENCY, async (tClip, i) => {
       const row = getClip(db, tClip.clip_id);
       if (!row) throw new UserError(`clip_id '${tClip.clip_id}' not in footage database — re-run skycut_scan_footage.`);
       const file = path.join(workDir, `inter_${String(i).padStart(3, "0")}.mp4`);
       await renderIntermediate(sourceFor(row, mode), tClip, fmt, encArgs, file, logDir);
-      inters.push({ file, durationS: await probeDuration(file, logDir) });
-    }
+      const durationS = await probeDuration(file, logDir);
+      onProgress?.(++prepared, totalSteps, `prepared shot ${i + 1}/${timeline.clips.length} (${tClip.label ?? tClip.id})`);
+      return { file, durationS };
+    });
 
     // 2. Fold intermediates into one stream: xfade where a transition is set, concat for hard cuts.
     const inputs: string[] = inters.flatMap((x) => ["-i", x.file]);
