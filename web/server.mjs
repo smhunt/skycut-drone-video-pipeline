@@ -9,7 +9,7 @@ import Anthropic from "@anthropic-ai/sdk";
 
 import { getActiveProject, skycutHome } from "../dist/core/project.js";
 import { searchMoments } from "../dist/core/analyze.js";
-import { proposeCut, createClaudeDirector } from "../dist/core/director.js";
+import { proposeCut, DIRECTOR_MODEL } from "../dist/core/director.js";
 import {
   loadTimeline,
   listVersions,
@@ -33,6 +33,42 @@ if (!process.env.ANTHROPIC_API_KEY) {
   process.exit(1);
 }
 const anthropic = new Anthropic({ maxRetries: 4 }); // ride out transient API overloads
+
+// ---- cost tracking (claude-sonnet-4-6: $3/M in, $15/M out, $0.30/M cache read, $3.75/M cache write) ----
+const PRICE_PER_M = { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 };
+const newUsage = () => ({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0, calls: 0 });
+const sessionUsage = newUsage();
+
+function addUsage(target, usage) {
+  target.input += usage?.input_tokens ?? 0;
+  target.output += usage?.output_tokens ?? 0;
+  target.cacheRead += usage?.cache_read_input_tokens ?? 0;
+  target.cacheWrite += usage?.cache_creation_input_tokens ?? 0;
+  target.calls += 1;
+}
+
+const usdOf = (u) =>
+  (u.input * PRICE_PER_M.input +
+    u.output * PRICE_PER_M.output +
+    u.cacheRead * PRICE_PER_M.cacheRead +
+    u.cacheWrite * PRICE_PER_M.cacheWrite) / 1e6;
+
+/** Director client that meters its API usage into the current turn. */
+function meteredDirector(turnUsage) {
+  return {
+    async complete(system, user) {
+      const response = await anthropic.messages.create({
+        model: DIRECTOR_MODEL,
+        max_tokens: 8192,
+        system,
+        messages: [{ role: "user", content: user }],
+      });
+      addUsage(turnUsage, response.usage);
+      addUsage(sessionUsage, response.usage);
+      return response.content.filter((b) => b.type === "text").map((b) => b.text).join("");
+    },
+  };
+}
 
 const renderUrl = (absPath) =>
   `${RENDER_BASE}/${path.relative(path.join(skycutHome(), "projects"), absPath).split(path.sep).join("/")}`;
@@ -105,7 +141,7 @@ const TOOLS = [
   },
 ];
 
-async function runTool(name, input, emit) {
+async function runTool(name, input, emit, turnUsage) {
   const project = getActiveProject();
   switch (name) {
     case "project_status": {
@@ -128,8 +164,11 @@ async function runTool(name, input, emit) {
       return JSON.stringify(rows.slice(0, 40));
     }
     case "propose_cut": {
-      emit({ type: "status", text: `Director is composing a ${input.duration_s}s cut from the footage graph (~30-90s)…` });
-      const { timeline, attempts } = await proposeCut(project, createClaudeDirector(), input);
+      emit({
+        type: "status",
+        text: `Director is composing a ${input.duration_s}s cut from the footage graph (~30-90s, est. 5-15¢)…`,
+      });
+      const { timeline, attempts } = await proposeCut(project, meteredDirector(turnUsage), input);
       if (attempts > 1) emit({ type: "status", text: "First draft failed validation — director revised it." });
       return `Saved timeline v${timeline.version}.\n${summarizeTimeline(timeline)}`;
     }
@@ -156,10 +195,12 @@ async function runTool(name, input, emit) {
     case "render_final": {
       const mode = name === "render_preview" ? "preview" : "final";
       const timeline = loadTimeline(project, input?.version);
-      emit({ type: "status", text: `Rendering ${mode} of v${timeline.version}…` });
+      emit({ type: "status", text: `Rendering ${mode} of v${timeline.version} (free — local ffmpeg)…` });
+      const t0 = Date.now();
       const result = await renderTimeline(project, timeline, mode, (p, t, m) =>
         emit({ type: "status", text: `[${mode} v${timeline.version}] ${m} (${Math.round((p / t) * 100)}%)` })
       );
+      const elapsed_s = Math.round((Date.now() - t0) / 10) / 100;
       emit({
         type: "render",
         url: renderUrl(result.path),
@@ -167,8 +208,9 @@ async function runTool(name, input, emit) {
         mode,
         duration_s: result.durationS,
         size_mb: Math.round(result.sizeBytes / 1e5) / 10,
+        elapsed_s,
       });
-      return `${mode} of v${timeline.version} rendered: ${result.durationS}s, ${(result.sizeBytes / 1e6).toFixed(1)} MB, URL: ${renderUrl(result.path)}`;
+      return `${mode} of v${timeline.version} rendered in ${elapsed_s}s: ${result.durationS}s, ${(result.sizeBytes / 1e6).toFixed(1)} MB, URL: ${renderUrl(result.path)}`;
     }
     default:
       return `Unknown tool ${name}`;
@@ -225,6 +267,17 @@ async function chatTurn(userMessage, emit) {
 
 async function runTurn(userMessage, emit) {
   history.push({ role: "user", content: userMessage });
+  const turnUsage = newUsage();
+  const emitCost = () =>
+    emit({
+      type: "cost",
+      turn_usd: Math.round(usdOf(turnUsage) * 1000) / 1000,
+      session_usd: Math.round(usdOf(sessionUsage) * 1000) / 1000,
+      turn_in: turnUsage.input + turnUsage.cacheRead + turnUsage.cacheWrite,
+      turn_out: turnUsage.output,
+      api_calls: turnUsage.calls,
+    });
+
   for (let turn = 0; turn < 20; turn++) {
     const response = await anthropic.messages.create({
       model: MODEL,
@@ -233,13 +286,18 @@ async function runTurn(userMessage, emit) {
       tools: TOOLS,
       messages: history,
     });
+    addUsage(turnUsage, response.usage);
+    addUsage(sessionUsage, response.usage);
     history.push({ role: "assistant", content: response.content });
 
     const text = response.content.filter((b) => b.type === "text").map((b) => b.text).join("");
     if (text.trim()) emit({ type: "text", text });
 
     const toolUses = response.content.filter((b) => b.type === "tool_use");
-    if (toolUses.length === 0 || response.stop_reason !== "tool_use") return;
+    if (toolUses.length === 0 || response.stop_reason !== "tool_use") {
+      emitCost();
+      return;
+    }
 
     const results = [];
     for (const tu of toolUses) {
@@ -247,7 +305,7 @@ async function runTurn(userMessage, emit) {
       let content;
       let isError = false;
       try {
-        content = await runTool(tu.name, tu.input, emit);
+        content = await runTool(tu.name, tu.input, emit, turnUsage);
       } catch (err) {
         content = String(err?.message ?? err);
         isError = true;
@@ -257,6 +315,7 @@ async function runTurn(userMessage, emit) {
     }
     history.push({ role: "user", content: results });
   }
+  emitCost();
   emit({ type: "text", text: "(stopped: too many steps in one turn — ask me to continue)" });
 }
 
