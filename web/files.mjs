@@ -20,6 +20,8 @@ const certDir = path.join(os.homedir(), "Code/.traefik/certs");
 const server = https.createServer(
   { cert: fs.readFileSync(path.join(certDir, "cert.pem")), key: fs.readFileSync(path.join(certDir, "key.pem")) },
   (req, res) => {
+    console.log(`${new Date().toISOString()} ${req.method} ${req.url} range=${req.headers.range ?? "-"} ua=${(req.headers["user-agent"] ?? "").slice(0, 40)}`);
+    res.on("close", () => console.log(`  → closed (${res.statusCode}, finished=${res.writableFinished})`));
     const urlPath = decodeURIComponent(new URL(req.url, "https://x").pathname);
     const filePath = path.normalize(path.join(ROOT, urlPath));
     if (!filePath.startsWith(ROOT)) {
