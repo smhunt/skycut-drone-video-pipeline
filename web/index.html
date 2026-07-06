@@ -127,6 +127,9 @@ function addRender(ev) {
     iconUrl: "/vendor/plyr.svg",
     controls: ["play-large", "play", "progress", "current-time", "duration", "mute", "volume", "fullscreen"],
     ratio: "16:9",
+    hideControls: true, // fade out when idle during playback + in fullscreen; back on hover
+    clickToPlay: true,
+    keyboard: { focused: true }, // space/arrows/f work when the player has focus
   });
   log.scrollTop = log.scrollHeight;
 }
