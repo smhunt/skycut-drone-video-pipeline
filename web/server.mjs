@@ -186,10 +186,32 @@ Rules:
 
 // ---- conversation state (single local session, reset via /api/reset) ----
 let history = [];
+let turnQueue = Promise.resolve(); // turns are strictly serialized — concurrent SSE requests queue up
+
+/** Drop everything from the first assistant tool_use that lacks its tool_result reply. */
+function sanitizeHistory() {
+  for (let i = 0; i < history.length; i++) {
+    const msg = history[i];
+    if (msg.role !== "assistant" || !Array.isArray(msg.content)) continue;
+    const toolIds = msg.content.filter((b) => b.type === "tool_use").map((b) => b.id);
+    if (toolIds.length === 0) continue;
+    const next = history[i + 1];
+    const resultIds = new Set(
+      next?.role === "user" && Array.isArray(next.content)
+        ? next.content.filter((b) => b.type === "tool_result").map((b) => b.tool_use_id)
+        : []
+    );
+    if (!toolIds.every((id) => resultIds.has(id))) {
+      history.length = i; // truncate the broken tail — the session stays usable
+      return;
+    }
+  }
+}
 
 async function chatTurn(userMessage, emit) {
   // Transactional: a turn that dies mid-tool-call must not leave a dangling
   // tool_use in history (it would 400 every subsequent API call).
+  sanitizeHistory();
   const checkpoint = history.length;
   try {
     await runTurn(userMessage, emit);
@@ -245,6 +267,31 @@ const server = https.createServer(
     if (req.method === "GET" && (pathname === "/" || pathname === "/index.html")) {
       res.writeHead(200, { "content-type": "text/html" });
       res.end(fs.readFileSync(path.join(__dirname, "index.html")));
+    } else if (req.method === "GET" && pathname === "/api/renders") {
+      try {
+        const project = getActiveProject();
+        const renders = fs
+          .readdirSync(project.paths.renders)
+          .filter((f) => f.endsWith(".mp4"))
+          .map((f) => {
+            const abs = path.join(project.paths.renders, f);
+            const m = /-v(\d+)-(preview|final)\.mp4$/.exec(f);
+            return {
+              url: renderUrl(abs),
+              file: f,
+              version: m ? Number(m[1]) : null,
+              mode: m ? m[2] : "unknown",
+              size_mb: Math.round(fs.statSync(abs).size / 1e5) / 10,
+              mtime: fs.statSync(abs).mtimeMs,
+            };
+          })
+          .sort((a, b) => b.mtime - a.mtime);
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ project: project.meta.name, renders }));
+      } catch (err) {
+        res.writeHead(500, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: String(err?.message ?? err) }));
+      }
     } else if (req.method === "POST" && pathname === "/api/reset") {
       history = [];
       res.writeHead(200, { "content-type": "application/json" });
@@ -259,17 +306,29 @@ const server = https.createServer(
           "cache-control": "no-cache",
           connection: "keep-alive",
         });
-        const emit = (event) => res.write(`data: ${JSON.stringify(event)}\n\n`);
-        const heartbeat = setInterval(() => res.write(": ping\n\n"), 15000);
-        try {
-          await chatTurn(String(message ?? ""), emit);
-        } catch (err) {
-          emit({ type: "text", text: `Server error: ${err?.message ?? err}` });
-        } finally {
-          clearInterval(heartbeat);
-          emit({ type: "done" });
-          res.end();
-        }
+        // emit must never throw (client may disconnect mid-render); the work continues regardless.
+        const emit = (event) => {
+          try {
+            res.write(`data: ${JSON.stringify(event)}\n\n`);
+          } catch {
+            /* stream gone — renders still land in /api/renders */
+          }
+        };
+        const heartbeat = setInterval(() => emit({ type: "ping" }), 15000);
+        // Strict serialization: a second message waits for the in-flight turn instead of
+        // interleaving writes into the shared history.
+        const myTurn = turnQueue.then(async () => {
+          try {
+            await chatTurn(String(message ?? ""), emit);
+          } catch (err) {
+            emit({ type: "text", text: `Server error: ${err?.message ?? err}` });
+          }
+        });
+        turnQueue = myTurn;
+        await myTurn;
+        clearInterval(heartbeat);
+        emit({ type: "done" });
+        res.end();
       });
     } else {
       res.writeHead(404);

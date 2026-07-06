@@ -35,6 +35,7 @@
 <header>
   <h1>🎬 SkyCut Chat</h1>
   <span class="sub" id="sub">local MVP — ask for cuts, iterate, render</span>
+  <button id="renders">Renders</button>
   <button id="reset">New chat</button>
 </header>
 <div id="log">
@@ -104,6 +105,14 @@ f.addEventListener("submit", async (e) => {
   } finally {
     send.disabled = false; q.disabled = false; q.focus();
   }
+});
+
+document.getElementById("renders").addEventListener("click", async () => {
+  const res = await fetch("/api/renders");
+  const data = await res.json();
+  if (!data.renders?.length) return add("msg bot", "No renders on disk yet.");
+  add("msg bot", `All renders for ${data.project} (newest first):`);
+  data.renders.forEach((r) => addRender({ url: r.url, version: r.version ?? "?", mode: r.mode, duration_s: "", size_mb: r.size_mb }));
 });
 
 document.getElementById("reset").addEventListener("click", async () => {
