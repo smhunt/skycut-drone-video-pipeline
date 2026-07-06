@@ -188,6 +188,18 @@ Rules:
 let history = [];
 
 async function chatTurn(userMessage, emit) {
+  // Transactional: a turn that dies mid-tool-call must not leave a dangling
+  // tool_use in history (it would 400 every subsequent API call).
+  const checkpoint = history.length;
+  try {
+    await runTurn(userMessage, emit);
+  } catch (err) {
+    history.length = checkpoint;
+    throw err;
+  }
+}
+
+async function runTurn(userMessage, emit) {
   history.push({ role: "user", content: userMessage });
   for (let turn = 0; turn < 20; turn++) {
     const response = await anthropic.messages.create({
