@@ -4,7 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>SkyCut Chat</title>
+<link rel="stylesheet" href="/vendor/plyr.css">
 <style>
+  :root { --plyr-color-main:#5b9dff; }
   :root { --bg:#0e1116; --panel:#161b23; --border:#252c38; --text:#e6e9ee; --dim:#8b95a5; --accent:#5b9dff; --ok:#4cc38a; }
   * { box-sizing:border-box; margin:0; }
   body { background:var(--bg); color:var(--text); font:15px/1.5 -apple-system,system-ui,sans-serif; height:100vh; display:flex; flex-direction:column; }
@@ -38,6 +40,7 @@
   @keyframes spin { to { transform:rotate(360deg); } }
   .render { align-self:flex-start; width:min(660px,100%); background:var(--panel); border:1px solid var(--border); border-radius:12px; overflow:hidden; }
   .render video { width:100%; aspect-ratio:16/9; object-fit:contain; display:block; background:#000; }
+  .render .plyr { width:100%; max-height:min(56vh, 460px); }
   .render .cap { padding:8px 12px; font-size:13px; color:var(--dim); display:flex; justify-content:space-between; }
   .render .cap b { color:var(--text); }
   .render .cap a { color:var(--accent); text-decoration:none; }
@@ -64,6 +67,7 @@
   <button id="send">Send</button>
 </form>
 <div class="hint">previews are 720p · finals only when you ask · everything is versioned, nothing is lost</div>
+<script src="/vendor/plyr.min.js"></script>
 <script>
 const log = document.getElementById("log"), q = document.getElementById("q"),
       f = document.getElementById("f"), send = document.getElementById("send");
@@ -115,10 +119,16 @@ function addMsg(cls, text) {
 function addRender(ev) {
   const d = document.createElement("div");
   d.className = "render";
-  d.innerHTML = `<video controls preload="metadata" src="${ev.url}"></video>
+  d.innerHTML = `<video playsinline preload="metadata" src="${ev.url}"></video>
     <div class="cap"><span><b>v${ev.version}</b> · ${ev.mode}${ev.duration_s ? ` · ${ev.duration_s}s` : ""} · ${ev.size_mb} MB${ev.elapsed_s ? ` · rendered in ${ev.elapsed_s}s` : ""}</span>
     <a href="${ev.url}" target="_blank">open ↗</a></div>`;
-  log.appendChild(d); log.scrollTop = log.scrollHeight;
+  log.appendChild(d);
+  new Plyr(d.querySelector("video"), {
+    iconUrl: "/vendor/plyr.svg",
+    controls: ["play-large", "play", "progress", "current-time", "duration", "mute", "volume", "fullscreen"],
+    ratio: "16:9",
+  });
+  log.scrollTop = log.scrollHeight;
 }
 
 // --- step widget: spinner + label + elapsed timer + progress bar ---

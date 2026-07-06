@@ -328,6 +328,18 @@ const server = https.createServer(
     if (req.method === "GET" && (pathname === "/" || pathname === "/index.html")) {
       res.writeHead(200, { "content-type": "text/html" });
       res.end(fs.readFileSync(path.join(__dirname, "index.html")));
+    } else if (req.method === "GET" && pathname.startsWith("/vendor/")) {
+      const file = path.normalize(path.join(__dirname, pathname));
+      if (!file.startsWith(path.join(__dirname, "vendor")) || !fs.existsSync(file)) {
+        res.writeHead(404);
+        return res.end("not found");
+      }
+      const types = { ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml" };
+      res.writeHead(200, {
+        "content-type": types[path.extname(file)] ?? "application/octet-stream",
+        "cache-control": "max-age=86400",
+      });
+      res.end(fs.readFileSync(file));
     } else if (req.method === "GET" && pathname === "/api/renders") {
       try {
         const project = getActiveProject();
