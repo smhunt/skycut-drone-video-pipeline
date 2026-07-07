@@ -22,12 +22,15 @@ import {
 } from "../dist/core/timeline.js";
 import { renderTimeline } from "../dist/core/render.js";
 import { openDb } from "../dist/core/graph.js";
-import { searchMusic, downloadMusic, listMusic } from "./music.mjs";
+import { searchMusic, downloadMusic, listMusic, MUSIC_DIR } from "./music.mjs";
+import { serveFile } from "./serve-file.mjs";
 
 const PORT = 3080;
-const RENDER_BASE = "https://dev.ecoworks.ca:5502"; // static file server over ~/SkyCut/projects
 const MODEL = "claude-sonnet-4-6";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const PROJECTS_ROOT = path.join(skycutHome(), "projects");
+const CHAT_DIR = path.join(skycutHome(), "chat");
+const CHAT_STATE = path.join(CHAT_DIR, "state.json");
 
 if (!process.env.ANTHROPIC_API_KEY) {
   console.error("ANTHROPIC_API_KEY not set — start with the key in env.");
@@ -71,8 +74,10 @@ function meteredDirector(turnUsage) {
   };
 }
 
+// Same-origin media URLs — served by this server. Cross-origin (:5502) media is
+// silently blocked by Chrome when the second origin's cert exception is missing.
 const renderUrl = (absPath) =>
-  `${RENDER_BASE}/${path.relative(path.join(skycutHome(), "projects"), absPath).split(path.sep).join("/")}`;
+  `/files/${path.relative(PROJECTS_ROOT, absPath).split(path.sep).join("/")}`;
 
 // ---- tools the chat agent can use ----
 
@@ -276,9 +281,43 @@ Rules:
 - Be concise. The UI shows renders as embedded videos automatically — don't paste URLs into your reply.
 - If a request is impossible (duration too long for the footage, unknown version), explain briefly and suggest what would work.`;
 
-// ---- conversation state (single local session, reset via /api/reset) ----
+// ---- conversation state (single local session, persisted to disk, reset via /api/reset) ----
 let history = [];
+let transcript = []; // UI-replayable events: {type:"user",text} | text/tool/render/cost events
 let turnQueue = Promise.resolve(); // turns are strictly serialized — concurrent SSE requests queue up
+
+function loadChatState() {
+  try {
+    const saved = JSON.parse(fs.readFileSync(CHAT_STATE, "utf8"));
+    history = saved.history ?? [];
+    sanitizeHistory();
+    transcript = saved.transcript ?? [];
+    if (history.length) console.log(`restored chat: ${history.length} history messages, ${transcript.length} transcript events`);
+  } catch {
+    /* fresh start */
+  }
+}
+
+function saveChatState() {
+  try {
+    fs.mkdirSync(CHAT_DIR, { recursive: true });
+    fs.writeFileSync(CHAT_STATE, JSON.stringify({ history, transcript, saved: new Date().toISOString() }));
+  } catch (err) {
+    console.error("chat state save failed:", err?.message);
+  }
+}
+
+function archiveChatState() {
+  if (!history.length) return;
+  saveChatState();
+  try {
+    fs.renameSync(CHAT_STATE, path.join(CHAT_DIR, `archive-${new Date().toISOString().replace(/[:.]/g, "-")}.json`));
+  } catch {
+    /* nothing to archive */
+  }
+  history = [];
+  transcript = [];
+}
 
 /** Drop everything from the first assistant tool_use that lacks its tool_result reply. */
 function sanitizeHistory() {
@@ -305,10 +344,19 @@ async function chatTurn(userMessage, emit) {
   // tool_use in history (it would 400 every subsequent API call).
   sanitizeHistory();
   const checkpoint = history.length;
+  const tCheckpoint = transcript.length;
+  transcript.push({ type: "user", text: userMessage });
+  // Record replayable events as they stream (skip transient statuses).
+  const recordingEmit = (event) => {
+    if (["text", "tool", "render", "cost"].includes(event.type)) transcript.push(event);
+    emit(event);
+  };
   try {
-    await runTurn(userMessage, emit);
+    await runTurn(userMessage, recordingEmit);
+    saveChatState();
   } catch (err) {
     history.length = checkpoint;
+    transcript.length = tCheckpoint;
     throw err;
   }
 }
@@ -388,6 +436,13 @@ const server = https.createServer(
         "cache-control": "max-age=86400",
       });
       res.end(fs.readFileSync(file));
+    } else if (req.method === "GET" && pathname.startsWith("/files/")) {
+      serveFile(PROJECTS_ROOT, pathname.slice("/files".length), req, res);
+    } else if (req.method === "GET" && pathname.startsWith("/music/")) {
+      serveFile(MUSIC_DIR, pathname.slice("/music".length), req, res);
+    } else if (req.method === "GET" && pathname === "/api/transcript") {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ transcript }));
     } else if (req.method === "GET" && pathname === "/api/music/search") {
       const q = new URL(req.url, "https://x").searchParams;
       try {
@@ -441,7 +496,7 @@ const server = https.createServer(
         res.end(JSON.stringify({ error: String(err?.message ?? err) }));
       }
     } else if (req.method === "POST" && pathname === "/api/reset") {
-      history = [];
+      archiveChatState();
       res.writeHead(200, { "content-type": "application/json" });
       res.end('{"ok":true}');
     } else if (req.method === "POST" && pathname === "/api/chat") {
@@ -486,4 +541,5 @@ const server = https.createServer(
   }
 );
 
+loadChatState();
 server.listen(PORT, () => console.log(`SkyCut Chat: https://dev.ecoworks.ca:${PORT}`));

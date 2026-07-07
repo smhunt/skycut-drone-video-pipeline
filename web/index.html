@@ -191,6 +191,36 @@ function finishStep() {
   step = null;
 }
 
+function addCost(ev) {
+  const d = document.createElement("div");
+  d.className = "cost";
+  d.textContent = `turn $${ev.turn_usd.toFixed(3)} · ${(ev.turn_in / 1000).toFixed(1)}k in / ${(ev.turn_out / 1000).toFixed(1)}k out · ${ev.api_calls} API call${ev.api_calls === 1 ? "" : "s"}`;
+  log.appendChild(d);
+  document.getElementById("sessioncost").textContent = ` · session $${ev.session_usd.toFixed(2)}`;
+}
+
+function addDoneStep(label) {
+  const d = document.createElement("div");
+  d.className = "step done";
+  d.innerHTML = `<span class="icon">✓</span><span class="body"><span class="label">${esc(label)}</span></span>`;
+  log.appendChild(d);
+}
+
+// Restore prior conversation from the server (history survives restarts and reloads).
+(async () => {
+  try {
+    const { transcript } = await (await fetch("/api/transcript")).json();
+    for (const ev of transcript ?? []) {
+      if (ev.type === "user") addMsg("user", ev.text);
+      else if (ev.type === "text") addMsg(/^Server error/.test(ev.text) ? "err" : "bot", ev.text);
+      else if (ev.type === "tool") addDoneStep(TOOL_LABELS[ev.name] ?? ev.name);
+      else if (ev.type === "render") addRender(ev);
+      else if (ev.type === "cost") addCost(ev);
+    }
+    log.scrollTop = log.scrollHeight;
+  } catch { /* fresh session */ }
+})();
+
 addMsg("bot", `Hey! I build video cuts from your analyzed footage. Try:
 - "propose a 45-second cut of the calmest lake and forest moments, then preview it"
 - "show me the best floatplane shots"
@@ -226,13 +256,7 @@ f.addEventListener("submit", async (e) => {
         else if (ev.type === "tool") startStep(TOOL_LABELS[ev.name] ?? ev.name);
         else if (ev.type === "status") updateStep(ev.text);
         else if (ev.type === "render") { finishStep(); addRender(ev); }
-        else if (ev.type === "cost") {
-          const d = document.createElement("div");
-          d.className = "cost";
-          d.textContent = `turn $${ev.turn_usd.toFixed(3)} · ${(ev.turn_in / 1000).toFixed(1)}k in / ${(ev.turn_out / 1000).toFixed(1)}k out · ${ev.api_calls} API call${ev.api_calls === 1 ? "" : "s"}`;
-          log.appendChild(d);
-          document.getElementById("sessioncost").textContent = ` · session $${ev.session_usd.toFixed(2)}`;
-        }
+        else if (ev.type === "cost") addCost(ev);
       }
     }
     finishStep();
@@ -288,7 +312,7 @@ document.getElementById("music").addEventListener("click", async () => {
 
   const lib = await (await fetch("/api/music/library")).json();
   if (lib.tracks?.length) {
-    lib.tracks.forEach((t) => trackRow({ ...t, preview_url: "https://dev.ecoworks.ca:5502/music/" + encodeURIComponent(t.file) }, results));
+    lib.tracks.forEach((t) => trackRow({ ...t, preview_url: "/music/" + encodeURIComponent(t.file) }, results));
   } else {
     results.innerHTML = '<div class="a" style="color:var(--dim);font-size:13px">Library is empty — search above, or just ask me in chat.</div>';
   }
