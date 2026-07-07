@@ -241,6 +241,17 @@ f.addEventListener("submit", async (e) => {
   }
 });
 
+// --- Single-player rule: starting any audio/video pauses every other one ---
+document.addEventListener(
+  "play",
+  (e) => {
+    for (const m of document.querySelectorAll("audio, video")) {
+      if (m !== e.target && !m.paused) m.pause();
+    }
+  },
+  true // media events don't bubble — capture phase catches them all
+);
+
 // --- Music panel ---
 function trackRow(t, container) {
   const row = document.createElement("div");
