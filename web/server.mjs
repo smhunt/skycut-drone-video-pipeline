@@ -22,6 +22,7 @@ import {
 } from "../dist/core/timeline.js";
 import { renderTimeline } from "../dist/core/render.js";
 import { openDb } from "../dist/core/graph.js";
+import { searchMusic, downloadMusic, listMusic } from "./music.mjs";
 
 const PORT = 3080;
 const RENDER_BASE = "https://dev.ecoworks.ca:5502"; // static file server over ~/SkyCut/projects
@@ -130,6 +131,34 @@ const TOOLS = [
     },
   },
   {
+    name: "search_music",
+    description:
+      "Search royalty-free music (Jamendo catalog, licenses allow commercial use + modification). " +
+      "Returns tracks with id, title, artist, duration, license, and attribution. Free.",
+    input_schema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: 'Mood/genre keywords, e.g. "calm cinematic piano"' },
+        max_duration_s: { type: "number", description: "Only tracks at most this long" },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "download_music",
+    description: "Download a track from the last search_music results into the local music library (~/SkyCut/music). Returns the absolute file path to use with set_music.",
+    input_schema: {
+      type: "object",
+      properties: { track_id: { type: "string", description: "id from search_music results" } },
+      required: ["track_id"],
+    },
+  },
+  {
+    name: "list_music",
+    description: "List tracks already in the local music library, with file paths and attribution.",
+    input_schema: { type: "object", properties: {} },
+  },
+  {
     name: "render_preview",
     description: "Fast 720p preview render of a timeline version (latest if omitted). Takes ~1-3 minutes.",
     input_schema: { type: "object", properties: { version: { type: "integer" } } },
@@ -191,6 +220,23 @@ async function runTool(name, input, emit, turnUsage) {
       const saved = saveTimeline(project, stamped);
       return `Saved v${saved.version} (${computeDuration(saved).toFixed(1)}s): ${summaries.join("; ")}\n${summarizeTimeline(saved)}`;
     }
+    case "search_music": {
+      const tracks = await searchMusic(input.query, { maxDurationS: input.max_duration_s });
+      if (!tracks.length) return "No matching tracks — try broader keywords.";
+      return JSON.stringify(tracks.map(({ preview_url, download_url, ...t }) => t));
+    }
+    case "download_music": {
+      const entry = await downloadMusic(input.track_id);
+      return (
+        `${entry.already ? "Already in library" : "Downloaded"}: "${entry.title}" by ${entry.artist} ` +
+        `(${entry.duration_s}s, ${entry.license}) → ${entry.path}\nAttribution: ${entry.attribution}`
+      );
+    }
+    case "list_music": {
+      const tracks = listMusic();
+      if (!tracks.length) return "Music library is empty — use search_music then download_music.";
+      return JSON.stringify(tracks.map((t) => ({ id: t.id, title: t.title, artist: t.artist, duration_s: t.duration_s, license: t.license, path: t.path, attribution: t.attribution })));
+    }
     case "render_preview":
     case "render_final": {
       const mode = name === "render_preview" ? "preview" : "final";
@@ -220,6 +266,8 @@ async function runTool(name, input, emit, turnUsage) {
 const SYSTEM = `You are SkyCut's chat assistant — you help the user create and iterate on video cuts from their analyzed drone footage, conversationally.
 
 Workflow you drive with tools: search/explore the footage graph → propose_cut (new timeline version) → render_preview → user watches → apply_timeline_edit for revisions (each edit = new version) → render_preview again → render_final only when the user explicitly asks to finalize.
+
+Music: search_music → download_music → apply_timeline_edit with {op:"set_music", music:{path:<absolute library path>, gain_db:-6, fade_out_s:2}} → render_preview. Prefer tracks whose duration is at least the cut length (the bed loops if shorter, which is fine for ambient tracks). For CC-BY / CC-BY-SA tracks, remind the user the final video needs the attribution line (offer to add it as a closing text overlay).
 
 Rules:
 - Timeline versions are immutable; edits create new versions. The user can have several cuts in flight — track versions carefully and always say which version you acted on.
@@ -340,6 +388,33 @@ const server = https.createServer(
         "cache-control": "max-age=86400",
       });
       res.end(fs.readFileSync(file));
+    } else if (req.method === "GET" && pathname === "/api/music/search") {
+      const q = new URL(req.url, "https://x").searchParams;
+      try {
+        const tracks = await searchMusic(q.get("q") ?? "", { maxDurationS: q.get("max_s") ? Number(q.get("max_s")) : undefined });
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ tracks }));
+      } catch (err) {
+        res.writeHead(500, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: String(err?.message ?? err) }));
+      }
+    } else if (req.method === "POST" && pathname === "/api/music/download") {
+      let body = "";
+      req.on("data", (c) => (body += c));
+      req.on("end", async () => {
+        try {
+          const { track_id } = JSON.parse(body || "{}");
+          const entry = await downloadMusic(track_id);
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end(JSON.stringify({ track: entry }));
+        } catch (err) {
+          res.writeHead(500, { "content-type": "application/json" });
+          res.end(JSON.stringify({ error: String(err?.message ?? err) }));
+        }
+      });
+    } else if (req.method === "GET" && pathname === "/api/music/library") {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ tracks: listMusic() }));
     } else if (req.method === "GET" && pathname === "/api/renders") {
       try {
         const project = getActiveProject();

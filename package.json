@@ -1,6 +1,6 @@
 {
   "name": "skycut",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Local-first MCP server that turns raw drone footage into polished marketing cuts",
   "type": "module",
   "main": "dist/index.js",

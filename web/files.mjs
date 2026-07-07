@@ -7,9 +7,12 @@ import os from "node:os";
 
 const PORT = 5502;
 const ROOT = path.join(os.homedir(), "SkyCut", "projects");
+const MUSIC_ROOT = path.join(os.homedir(), "SkyCut", "music");
 const TYPES = {
   ".mp4": "video/mp4",
   ".mov": "video/quicktime",
+  ".mp3": "audio/mpeg",
+  ".wav": "audio/wav",
   ".jpg": "image/jpeg",
   ".json": "application/json",
   ".html": "text/html",
@@ -23,8 +26,12 @@ const server = https.createServer(
     console.log(`${new Date().toISOString()} ${req.method} ${req.url} range=${req.headers.range ?? "-"} ua=${(req.headers["user-agent"] ?? "").slice(0, 40)}`);
     res.on("close", () => console.log(`  → closed (${res.statusCode}, finished=${res.writableFinished})`));
     const urlPath = decodeURIComponent(new URL(req.url, "https://x").pathname);
-    const filePath = path.normalize(path.join(ROOT, urlPath));
-    if (!filePath.startsWith(ROOT)) {
+    // /music/* serves the music library; everything else serves project workspaces.
+    const isMusic = urlPath.startsWith("/music/");
+    const root = isMusic ? MUSIC_ROOT : ROOT;
+    const rel = isMusic ? urlPath.slice("/music".length) : urlPath;
+    const filePath = path.normalize(path.join(root, rel));
+    if (!filePath.startsWith(root)) {
       res.writeHead(403);
       return res.end("forbidden");
     }

@@ -51,12 +51,26 @@
   .hint { color:var(--dim); font-size:13px; text-align:center; padding-bottom:10px; }
   .cost { align-self:flex-end; color:var(--dim); font-size:12px; padding:0 6px; font-variant-numeric:tabular-nums; }
   #sessioncost { color:var(--ok); }
+  .music { align-self:flex-start; width:min(660px,100%); background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:12px 14px; }
+  .music h3 { font-size:14px; margin-bottom:8px; }
+  .music .search { display:flex; gap:8px; margin-bottom:10px; }
+  .music .search input { flex:1; background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:8px 10px; color:var(--text); font-size:14px; outline:none; }
+  .music .search button { background:var(--accent); border:0; color:#fff; border-radius:8px; padding:0 14px; cursor:pointer; }
+  .track { display:flex; align-items:center; gap:10px; padding:7px 0; border-top:1px solid var(--border); font-size:13.5px; }
+  .track .meta { flex:1; min-width:0; }
+  .track .meta .t { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .track .meta .a { color:var(--dim); font-size:12px; }
+  .track .lic { color:var(--dim); font-size:11px; border:1px solid var(--border); border-radius:6px; padding:1px 6px; white-space:nowrap; }
+  .track audio { height:30px; width:180px; }
+  .track button { background:none; border:1px solid var(--accent); color:var(--accent); border-radius:8px; padding:4px 10px; cursor:pointer; font-size:12.5px; white-space:nowrap; }
+  .track button:disabled { border-color:var(--border); color:var(--dim); cursor:default; }
 </style>
 </head>
 <body>
 <header>
   <h1>🎬 SkyCut Chat</h1>
   <span class="sub">DJI Wilderness · 271 clips · 3,020 segments<span id="sessioncost"></span></span>
+  <button id="music">🎵 Music</button>
   <button id="renders">Renders</button>
   <button id="reset">New chat</button>
 </header>
@@ -225,6 +239,62 @@ f.addEventListener("submit", async (e) => {
   } finally {
     send.disabled = false; q.disabled = false; q.focus();
   }
+});
+
+// --- Music panel ---
+function trackRow(t, container) {
+  const row = document.createElement("div");
+  row.className = "track";
+  row.innerHTML = `<div class="meta"><div class="t">${esc(t.title)}</div><div class="a">${esc(t.artist)} · ${t.duration_s}s</div></div>
+    <span class="lic">${esc(t.license)}</span>
+    <audio controls preload="none" src="${t.preview_url ?? "/music-preview-missing"}"></audio>
+    <button ${t.in_library || t.path ? "disabled" : ""}>${t.in_library || t.path ? "In library ✓" : "Add"}</button>`;
+  const btn = row.querySelector("button");
+  btn.addEventListener("click", async () => {
+    btn.disabled = true; btn.textContent = "Downloading…";
+    try {
+      const r = await (await fetch("/api/music/download", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ track_id: t.id }) })).json();
+      if (r.error) throw new Error(r.error);
+      btn.textContent = "In library ✓";
+      addMsg("bot", `Added **${t.title}** to the library. Tell me e.g. *"put ${t.title} on v7 and re-render"* to use it.`);
+    } catch (e) { btn.disabled = false; btn.textContent = "Add"; addMsg("err", "Download failed: " + e.message); }
+  });
+  container.appendChild(row);
+}
+
+document.getElementById("music").addEventListener("click", async () => {
+  const panel = document.createElement("div");
+  panel.className = "music";
+  panel.innerHTML = `<h3>🎵 Music library</h3>
+    <div class="search"><input placeholder="Search royalty-free music… e.g. calm cinematic piano"><button>Search</button></div>
+    <div class="results"></div>`;
+  log.appendChild(panel); log.scrollTop = log.scrollHeight;
+  const results = panel.querySelector(".results");
+  const input = panel.querySelector("input");
+
+  const lib = await (await fetch("/api/music/library")).json();
+  if (lib.tracks?.length) {
+    lib.tracks.forEach((t) => trackRow({ ...t, preview_url: "https://dev.ecoworks.ca:5502/music/" + encodeURIComponent(t.file) }, results));
+  } else {
+    results.innerHTML = '<div class="a" style="color:var(--dim);font-size:13px">Library is empty — search above, or just ask me in chat.</div>';
+  }
+
+  const doSearch = async () => {
+    const q = input.value.trim();
+    if (!q) return;
+    results.innerHTML = '<div style="color:var(--dim);font-size:13px">Searching…</div>';
+    try {
+      const r = await (await fetch("/api/music/search?q=" + encodeURIComponent(q))).json();
+      if (r.error) throw new Error(r.error);
+      results.innerHTML = "";
+      if (!r.tracks.length) results.innerHTML = '<div style="color:var(--dim);font-size:13px">No results — try broader keywords.</div>';
+      r.tracks.forEach((t) => trackRow(t, results));
+    } catch (e) { results.innerHTML = ""; addMsg("err", "Search failed: " + e.message); }
+    log.scrollTop = log.scrollHeight;
+  };
+  panel.querySelector(".search button").addEventListener("click", doSearch);
+  input.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); doSearch(); } });
+  input.focus();
 });
 
 document.getElementById("renders").addEventListener("click", async () => {
