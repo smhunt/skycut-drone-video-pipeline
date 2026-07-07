@@ -269,11 +269,16 @@ f.addEventListener("submit", async (e) => {
 });
 
 // --- Single-player rule: starting any audio/video pauses every other one ---
+// Plyr re-dispatches "play" on its wrapper div, so e.target isn't always the media
+// element — resolve it, or we'd pause the very player the user just started.
 document.addEventListener(
   "play",
   (e) => {
+    const started =
+      e.target instanceof HTMLMediaElement ? e.target : e.target?.querySelector?.("audio, video");
+    if (!started) return;
     for (const m of document.querySelectorAll("audio, video")) {
-      if (m !== e.target && !m.paused) m.pause();
+      if (m !== started && !m.paused) m.pause();
     }
   },
   true // media events don't bubble — capture phase catches them all
