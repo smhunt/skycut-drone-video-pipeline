@@ -67,14 +67,62 @@
   .track audio { height:30px; width:180px; }
   .track button { background:none; border:1px solid var(--accent); color:var(--accent); border-radius:8px; padding:4px 10px; cursor:pointer; font-size:12.5px; white-space:nowrap; }
   .track button:disabled { border-color:var(--border); color:var(--dim); cursor:default; }
+  /* ---- timeline panel ---- */
+  .tl { align-self:flex-start; width:min(860px,100%); background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:12px 14px; }
+  .tl .head { display:flex; align-items:center; gap:10px; margin-bottom:8px; flex-wrap:wrap; }
+  .tl .head h3 { font-size:14px; }
+  .tl select { background:var(--bg); color:var(--text); border:1px solid var(--border); border-radius:8px; padding:5px 8px; font-size:13px; }
+  .tl .dur { color:var(--dim); font-size:13px; flex:1; }
+  .tl .cmp { color:var(--dim); font-size:13px; display:flex; gap:5px; align-items:center; cursor:pointer; user-select:none; }
+  .striplabel { color:var(--dim); font-size:11.5px; margin-top:6px; }
+  .strip { display:flex; gap:3px; align-items:stretch; min-height:50px; margin:4px 0; }
+  .shot { position:relative; border-radius:8px; background:#20334d; border:1px solid #33507a; padding:5px 7px; min-width:34px; overflow:hidden; font-size:11.5px; line-height:1.3; }
+  .strip.drag .shot { cursor:grab; }
+  .shot .n { font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .shot .d { color:var(--dim); font-variant-numeric:tabular-nums; }
+  .shot.sel { outline:2px solid var(--accent); }
+  .shot.dragging { opacity:.4; }
+  .shot.dropbefore { box-shadow:-3px 0 0 var(--ok); }
+  .shot.dropafter { box-shadow:3px 0 0 var(--ok); }
+  .shot.added { border-color:var(--ok); background:#173226; }
+  .shot.changed { border-color:#c9a227; background:#332c17; }
+  .shot.removed { border-color:#6e2c2c; background:#3a1d1d; opacity:.75; }
+  .xf { flex:none; align-self:center; color:var(--dim); font-size:10px; cursor:default; }
+  .tl .detail, .tl .diff { border-top:1px solid var(--border); margin-top:8px; padding-top:8px; font-size:12.5px; color:var(--dim); }
+  .tl .detail { display:none; } .tl .detail b { color:var(--text); }
+  .diff ul { margin:2px 0 2px 18px; } .diff li { margin:2px 0; }
+  .diff .add { color:var(--ok); } .diff .del { color:#e57373; } .diff .chg { color:#c9a227; }
+  .tl .foot { color:var(--dim); font-size:11.5px; margin-top:8px; }
+  /* ---- about modal ---- */
+  .overlay { position:fixed; inset:0; background:#000a; display:flex; align-items:center; justify-content:center; z-index:50; }
+  .modal { background:var(--panel); border:1px solid var(--border); border-radius:14px; width:min(640px,92vw); max-height:82vh; display:flex; flex-direction:column; }
+  .modal .mhead { display:flex; align-items:center; gap:10px; padding:14px 18px; border-bottom:1px solid var(--border); }
+  .modal .mhead h2 { font-size:16px; flex:1; }
+  .badge { background:var(--accent); color:#fff; font-size:11.5px; border-radius:999px; padding:2px 9px; font-weight:600; }
+  .modal .close { background:none; border:0; color:var(--dim); font-size:20px; cursor:pointer; line-height:1; }
+  .modal .close:hover { color:var(--text); }
+  .tabs { display:flex; gap:6px; padding:10px 18px 0; border-bottom:1px solid var(--border); }
+  .tabs button { background:none; border:0; border-bottom:2px solid transparent; color:var(--dim); padding:6px 10px 8px; cursor:pointer; font-size:13.5px; }
+  .tabs button.on { color:var(--text); border-bottom-color:var(--accent); }
+  .mbody { overflow-y:auto; padding:14px 18px 18px; font-size:14px; }
+  .mbody h4 { margin:12px 0 4px; font-size:13.5px; } .mbody h4:first-child { margin-top:0; }
+  .mbody .vdate { color:var(--dim); font-weight:400; font-size:12px; }
+  .mbody ul { margin:4px 0 4px 20px; } .mbody li { margin:3px 0; }
+  .mbody .pri { font-size:11px; border:1px solid var(--border); border-radius:6px; padding:0 6px; color:var(--dim); margin-left:6px; }
+  .hw { display:flex; gap:12px; margin:12px 0; }
+  .hw .ic { font-size:20px; } .hw .tt { font-weight:600; margin-bottom:2px; }
+  .hw .tx { color:var(--dim); font-size:13.5px; }
 </style>
 </head>
 <body>
 <header>
   <h1>🎬 SkyCut Chat</h1>
-  <span class="sub">DJI Wilderness · 271 clips · 3,020 segments<span id="sessioncost"></span></span>
+  <span class="badge" id="verbadge"></span>
+  <span class="sub"><span id="projstats">loading project…</span><span id="sessioncost"></span></span>
+  <button id="timeline">🎞️ Timeline</button>
   <button id="music">🎵 Music</button>
   <button id="renders">Renders</button>
+  <button id="about">About</button>
   <button id="reset">New chat</button>
 </header>
 <div id="log"></div>
@@ -353,6 +401,283 @@ document.getElementById("reset").addEventListener("click", async () => {
   await fetch("/api/reset", { method: "POST" });
   log.innerHTML = "";
   addMsg("bot", "Fresh chat. Same project — all timeline versions and renders are still on disk (see **Renders**).");
+});
+
+// ---- app metadata (About modal) ----
+const APP_VERSION = "0.4.0";
+const CHANGELOG = [
+  { version: "0.4.0", date: "2026-07-07", changes: [
+    "Timeline panel — visual shot strip (widths ∝ duration), drag shots to reorder (saves a new version), click a shot for trim/speed/source details",
+    "Version compare — pick any two versions, see both strips plus an added/removed/changed diff",
+    "About modal — changelog, how-it-works guide, and roadmap in-app",
+    "Header shows live project stats and app version",
+  ]},
+  { version: "0.3.0", date: "2026-07-06", changes: [
+    "Royalty-free music — search (Jamendo), preview, download to a local library, chat integration",
+    "Plyr video players with auto-hiding controls; single-player rule (starting one pauses the rest)",
+    "Same-origin media serving and persistent chat history across server restarts",
+  ]},
+  { version: "0.2.0", date: "2026-07-05", changes: [
+    "Chat web UI — SSE streaming, live progress bars, markdown, per-turn + session cost tracking",
+    "Parallel proxy encoding and vision analysis; MCP progress notifications",
+  ]},
+  { version: "0.1.0", date: "2026-07-05", changes: [
+    "Full MVP pipeline: scan → analyze (Claude vision) → footage graph → AI director → validated immutable timelines → 720p preview / 4K HEVC final renders (12 MCP tools, 57 tests)",
+  ]},
+];
+const HOW_IT_WORKS = [
+  { icon: "🔍", title: "Scan & analyze (already done for this project)", text: "Footage is probed and proxied, then Claude vision scores a frame every 4 seconds — subjects, camera movement, exposure, aesthetic 0–10 — into a searchable footage graph." },
+  { icon: "💬", title: "Describe the cut you want", text: "The AI director assembles a timeline from the best matching segments. Every proposal and every edit is saved as a new immutable version — nothing is ever lost." },
+  { icon: "🎞️", title: "Preview & iterate", text: "Previews render locally at 720p in a minute or two and embed right here. Ask for changes in chat, or open the Timeline panel and drag shots to reorder them yourself." },
+  { icon: "🎵", title: "Add music", text: "Search royalty-free tracks, preview them, add to your library, and say which version to put them on. The bed is loudness-normalized, looped to length, and faded out." },
+  { icon: "🏁", title: "Finalize", text: "Only when you explicitly ask: a full-quality 4K HEVC render from the original files on the source drive." },
+];
+const ROADMAP = [
+  { category: "In Progress", icon: "🚧", items: [
+    { t: "Timeline panel v2 — retrim by dragging shot edges", pri: "high" },
+  ]},
+  { category: "Planned", icon: "📋", items: [
+    { t: "Keyframe thumbnails inside timeline shots", pri: "high" },
+    { t: "Scrubber synced between timeline strip and preview player", pri: "medium" },
+    { t: "Text-overlay editor (titles, attribution lines)", pri: "medium" },
+    { t: "Multi-project switcher in the header", pri: "medium" },
+    { t: "Export cut as EDL / FCPXML for finishing in an NLE", pri: "low" },
+  ]},
+];
+
+// ---- live header stats ----
+async function refreshStats() {
+  try {
+    const s = await (await fetch("/api/status")).json();
+    if (s.error) throw new Error(s.error);
+    document.getElementById("projstats").textContent =
+      `${s.project} · ${s.clips.toLocaleString()} clips · ${s.segments.toLocaleString()} segments · ${s.versions.length} version${s.versions.length === 1 ? "" : "s"}`;
+  } catch { document.getElementById("projstats").textContent = "no active project"; }
+}
+document.getElementById("verbadge").textContent = "v" + APP_VERSION;
+refreshStats();
+
+// ---- timeline panel ----
+const fmtS = (n) => (Math.round(n * 10) / 10) + "s";
+const effDur = (c) => (c.out_s - c.in_s) / c.speed;
+
+async function fetchTimeline(version) {
+  const r = await (await fetch("/api/timeline" + (version ? "?version=" + version : ""))).json();
+  if (r.error) throw new Error(r.error);
+  return r;
+}
+
+function shotEl(c, i, data) {
+  const el = document.createElement("div");
+  el.className = "shot";
+  el.dataset.id = c.id;
+  el.dataset.index = i;
+  el.style.flexGrow = String(Math.max(effDur(c), 0.5));
+  el.style.flexBasis = "0";
+  const src = data.clips[c.clip_id];
+  el.title = `${c.label ?? c.id} · ${src?.rel_path ?? c.clip_id} · ${c.in_s}–${c.out_s}s${c.speed !== 1 ? ` @${c.speed}x` : ""}`;
+  el.innerHTML = `<div class="n">${esc(c.label ?? c.id)}</div><div class="d">${fmtS(effDur(c))}${c.speed !== 1 ? ` @${c.speed}x` : ""}</div>`;
+  return el;
+}
+
+function renderStrip(strip, data, { diff, draggable, onReorder, onSelect } = {}) {
+  strip.innerHTML = "";
+  strip.classList.toggle("drag", !!draggable);
+  const clips = data.timeline.clips;
+  clips.forEach((c, i) => {
+    const el = shotEl(c, i, data);
+    if (diff?.has(c.id)) el.classList.add(diff.get(c.id));
+    if (onSelect) el.addEventListener("click", () => onSelect(c, el));
+    if (draggable) {
+      el.draggable = true;
+      el.addEventListener("dragstart", (e) => { e.dataTransfer.setData("text/plain", c.id); el.classList.add("dragging"); });
+      el.addEventListener("dragend", () => el.classList.remove("dragging"));
+      el.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        const before = e.offsetX < el.offsetWidth / 2;
+        el.classList.toggle("dropbefore", before);
+        el.classList.toggle("dropafter", !before);
+      });
+      el.addEventListener("dragleave", () => el.classList.remove("dropbefore", "dropafter"));
+      el.addEventListener("drop", (e) => {
+        e.preventDefault();
+        const before = el.classList.contains("dropbefore");
+        el.classList.remove("dropbefore", "dropafter");
+        const draggedId = e.dataTransfer.getData("text/plain");
+        if (!draggedId || draggedId === c.id) return;
+        // Final index in the post-removal array (applyEdit removes then splices).
+        const order = clips.map((x) => x.id).filter((id) => id !== draggedId);
+        const toIndex = order.indexOf(c.id) + (before ? 0 : 1);
+        onReorder(draggedId, toIndex);
+      });
+    }
+    strip.appendChild(el);
+    if (c.transition_out && i < clips.length - 1) {
+      const xf = document.createElement("span");
+      xf.className = "xf";
+      xf.textContent = "⧓";
+      xf.title = `${c.transition_out.style} ${c.transition_out.duration_s}s`;
+      strip.appendChild(xf);
+    }
+  });
+}
+
+function diffTimelines(a, b) {
+  const A = new Map(a.timeline.clips.map((c, i) => [c.id, { c, i }]));
+  const B = new Map(b.timeline.clips.map((c, i) => [c.id, { c, i }]));
+  const marksA = new Map(), marksB = new Map(), lines = [];
+  for (const [id, { c }] of A) if (!B.has(id)) { marksA.set(id, "removed"); lines.push(`<li class="del">− removed '${esc(c.label ?? id)}'</li>`); }
+  for (const [id, { c, i }] of B) {
+    if (!A.has(id)) { marksB.set(id, "added"); lines.push(`<li class="add">+ added '${esc(c.label ?? id)}' at position ${i + 1}</li>`); continue; }
+    const old = A.get(id);
+    const changes = [];
+    if (old.c.in_s !== c.in_s || old.c.out_s !== c.out_s) changes.push(`retrimmed ${old.c.in_s}–${old.c.out_s}s → ${c.in_s}–${c.out_s}s`);
+    if (old.c.speed !== c.speed) changes.push(`speed ${old.c.speed}x → ${c.speed}x`);
+    const t0 = old.c.transition_out, t1 = c.transition_out;
+    if (JSON.stringify(t0 ?? null) !== JSON.stringify(t1 ?? null))
+      changes.push(t1 ? `transition → ${t1.style} ${t1.duration_s}s` : "transition removed (hard cut)");
+    if (old.i !== i) changes.push(`moved ${old.i + 1} → ${i + 1}`);
+    if (changes.length) { marksB.set(id, "changed"); lines.push(`<li class="chg">~ '${esc(c.label ?? id)}': ${esc(changes.join(", "))}</li>`); }
+  }
+  const m0 = a.timeline.music, m1 = b.timeline.music;
+  if (JSON.stringify(m0 ?? null) !== JSON.stringify(m1 ?? null))
+    lines.push(`<li class="chg">~ music: ${m0 ? esc(m0.path.split("/").pop()) : "none"} → ${m1 ? esc(m1.path.split("/").pop()) : "none"}</li>`);
+  if (Math.abs(a.duration_s - b.duration_s) >= 0.1)
+    lines.push(`<li>duration ${a.duration_s}s → ${b.duration_s}s</li>`);
+  return { marksA, marksB, html: lines.length ? `<ul>${lines.join("")}</ul>` : "<i>No differences.</i>" };
+}
+
+document.getElementById("timeline").addEventListener("click", async () => {
+  const panel = document.createElement("div");
+  panel.className = "tl";
+  panel.innerHTML = `<div class="head"><h3>🎞️ Timeline</h3>
+      <select class="verA"></select><span class="dur"></span>
+      <label class="cmp"><input type="checkbox"> compare with <select class="verB" disabled></select></label>
+    </div>
+    <div class="striplabel labA" style="display:none"></div>
+    <div class="strip stripA"></div>
+    <div class="striplabel labB" style="display:none"></div>
+    <div class="strip stripB" style="display:none"></div>
+    <div class="diff" style="display:none"></div>
+    <div class="detail"></div>
+    <div class="foot">drag shots to reorder — each drop saves a new version · click a shot for details</div>`;
+  log.appendChild(panel); log.scrollTop = log.scrollHeight;
+
+  const $ = (sel) => panel.querySelector(sel);
+  const verA = $(".verA"), verB = $(".verB"), cmpBox = $(".cmp input");
+  let cur = null;
+
+  const fillVersions = (sel, versions, pick) => {
+    sel.innerHTML = versions.map((v) => `<option value="${v}" ${v === pick ? "selected" : ""}>v${v}</option>`).join("");
+  };
+
+  const showDetail = (c, el) => {
+    panel.querySelectorAll(".shot.sel").forEach((s) => s.classList.remove("sel"));
+    el.classList.add("sel");
+    const src = cur.clips[c.clip_id];
+    $(".detail").style.display = "block";
+    $(".detail").innerHTML =
+      `<b>${esc(c.label ?? c.id)}</b> (${esc(c.id)}) · source <b>${esc(src?.rel_path ?? c.clip_id)}</b>` +
+      ` · trim <b>${c.in_s}–${c.out_s}s</b> of ${src ? fmtS(src.duration_s) : "?"} · speed <b>${c.speed}x</b>` +
+      ` · on-screen <b>${fmtS(effDur(c))}</b>` +
+      (c.transition_out ? ` · exits via <b>${esc(c.transition_out.style)} ${c.transition_out.duration_s}s</b>` : " · hard cut out");
+  };
+
+  const reorder = async (id, toIndex) => {
+    try {
+      const r = await (await fetch("/api/timeline/edit", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ base_version: cur.timeline.version, edits: [{ op: "reorder", id, to_index: toIndex }] }),
+      })).json();
+      if (r.error) throw new Error(r.error);
+      addMsg("bot", `🖱️ ${r.summary} (from v${cur.timeline.version}, in the timeline panel). Say *"preview v${r.version}"* to see it.`);
+      cur = r;
+      fillVersions(verA, r.versions, r.version);
+      fillVersions(verB, r.versions.filter((v) => v !== r.version), null);
+      draw();
+      refreshStats();
+    } catch (e) { addMsg("err", "Reorder failed: " + e.message); }
+  };
+
+  const draw = () => {
+    $(".dur").textContent = `${cur.timeline.clips.length} shots · ${cur.duration_s}s`;
+    const comparing = cmpBox.checked;
+    renderStrip($(".stripA"), cur, comparing ? { onSelect: showDetail } : { draggable: true, onReorder: reorder, onSelect: showDetail });
+    $(".stripB").style.display = comparing ? "flex" : "none";
+    $(".labA").style.display = $(".labB").style.display = comparing ? "block" : "none";
+    $(".diff").style.display = comparing ? "block" : "none";
+    $(".foot").textContent = comparing
+      ? "green = added · yellow = changed · red = removed (relative to the left/base version)"
+      : "drag shots to reorder — each drop saves a new version · click a shot for details";
+  };
+
+  const drawCompare = async () => {
+    const base = await fetchTimeline(Number(verB.value));
+    const { marksA, marksB, html } = diffTimelines(base, cur);
+    $(".labA").textContent = `v${base.timeline.version} (base) · ${base.duration_s}s`;
+    $(".labB").textContent = `v${cur.timeline.version} · ${cur.duration_s}s`;
+    renderStrip($(".stripA"), base, { diff: marksA });
+    renderStrip($(".stripB"), cur, { diff: marksB, onSelect: showDetail });
+    $(".diff").innerHTML = html;
+    $(".labA").style.display = $(".labB").style.display = "block";
+    $(".stripB").style.display = "flex";
+    $(".diff").style.display = "block";
+  };
+
+  const load = async () => {
+    try {
+      cur = await fetchTimeline(verA.value ? Number(verA.value) : undefined);
+      fillVersions(verA, cur.versions, cur.timeline.version);
+      fillVersions(verB, cur.versions.filter((v) => v !== cur.timeline.version), null);
+      cmpBox.checked ? drawCompare() : draw();
+    } catch (e) {
+      panel.querySelector(".head").insertAdjacentHTML("afterend", `<div class="striplabel">${esc(e.message)}</div>`);
+    }
+  };
+
+  verA.addEventListener("change", load);
+  verB.addEventListener("change", () => { if (cmpBox.checked) drawCompare(); });
+  cmpBox.addEventListener("change", () => {
+    verB.disabled = !cmpBox.checked;
+    cmpBox.checked && verB.value ? drawCompare() : draw();
+  });
+  await load();
+  log.scrollTop = log.scrollHeight;
+});
+
+// ---- about modal ----
+function aboutTab(name) {
+  if (name === "Changelog")
+    return CHANGELOG.map((v) =>
+      `<h4>v${v.version} <span class="vdate">· ${v.date}</span></h4><ul>${v.changes.map((c) => `<li>${esc(c)}</li>`).join("")}</ul>`
+    ).join("");
+  if (name === "How It Works")
+    return HOW_IT_WORKS.map((s) =>
+      `<div class="hw"><div class="ic">${s.icon}</div><div><div class="tt">${esc(s.title)}</div><div class="tx">${esc(s.text)}</div></div></div>`
+    ).join("");
+  return ROADMAP.map((g) =>
+    `<h4>${g.icon} ${esc(g.category)}</h4><ul>${g.items.map((i) => `<li>${esc(i.t)}<span class="pri">${i.pri}</span></li>`).join("")}</ul>`
+  ).join("");
+}
+
+document.getElementById("about").addEventListener("click", () => {
+  const overlay = document.createElement("div");
+  overlay.className = "overlay";
+  const tabs = ["Changelog", "How It Works", "Roadmap"];
+  overlay.innerHTML = `<div class="modal">
+    <div class="mhead"><h2>🎬 SkyCut</h2><span class="badge">v${APP_VERSION}</span><button class="close">✕</button></div>
+    <div class="tabs">${tabs.map((t, i) => `<button data-tab="${t}" class="${i === 0 ? "on" : ""}">${t}</button>`).join("")}</div>
+    <div class="mbody">${aboutTab(tabs[0])}</div></div>`;
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) overlay.remove(); });
+  overlay.querySelector(".close").addEventListener("click", () => overlay.remove());
+  overlay.querySelectorAll(".tabs button").forEach((b) =>
+    b.addEventListener("click", () => {
+      overlay.querySelectorAll(".tabs button").forEach((x) => x.classList.remove("on"));
+      b.classList.add("on");
+      overlay.querySelector(".mbody").innerHTML = aboutTab(b.dataset.tab);
+    })
+  );
+  document.body.appendChild(overlay);
 });
 </script>
 </body>

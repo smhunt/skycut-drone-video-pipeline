@@ -2,6 +2,29 @@
 
 All notable changes to SkyCut are documented here. Versioning follows [semver](https://semver.org/).
 
+## [0.4.0] - 2026-07-07
+
+### Added
+- **Timeline panel** (🎞️ button in the chat UI) — visual shot strip with widths proportional to on-screen duration, transition markers, and click-for-details (trim, speed, source clip, exit transition). Drag a shot to reorder: each drop applies a structured `reorder` edit server-side and saves a new immutable version, logged to the chat transcript
+- **Version compare** — pick any two timeline versions and see both strips stacked with a computed diff (added / removed / retrimmed / re-sped / moved shots, transition and music changes, duration delta), color-coded on the strips
+- **About modal** — in-app Changelog, How It Works guide, and Roadmap tabs with a version badge
+- **Live header stats** — project name, clip/segment counts, and version count now come from `/api/status` instead of being hardcoded
+- New HTTP endpoints: `GET /api/status`, `GET /api/timeline?version=N`, `POST /api/timeline/edit`
+
+### Changed
+- Chat-agent and HTTP timeline edits share one code path (`applyEditsAndSave`); the agent's system prompt notes that versions can also be created from the UI
+
+## [0.3.0] - 2026-07-06
+
+### Added
+- **Royalty-free music** — Jamendo catalog search (commercial-use licenses), in-chat and 🎵-panel preview, download into a local library (`~/SkyCut/music`), and chat-agent tools (`search_music`, `download_music`, `list_music`) wired to `set_music` edits
+- **Cost tracking** — per-turn and per-session USD + token counts shown in the chat UI
+- **Plyr video players** — auto-hiding controls when idle, click-to-play, keyboard shortcuts; single-player rule (starting any audio/video pauses all others)
+
+### Fixed
+- Same-origin media serving (root cause of dead inline players) with HTTP range support for Safari
+- Persistent, transactional chat history that survives server restarts; stacked players no longer compress when the log overflows
+
 ## [0.2.0] - 2026-07-05
 
 ### Added

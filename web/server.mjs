@@ -175,6 +175,42 @@ const TOOLS = [
   },
 ];
 
+/** Apply structured edits to a base timeline and save as a new immutable version. */
+function applyEditsAndSave(project, edits, baseVersion) {
+  const ctx = validationContextFor(project);
+  let current = loadTimeline(project, baseVersion);
+  const summaries = [];
+  for (const edit of edits) {
+    const { result, summary } = applyEdit(current, edit);
+    summaries.push(summary);
+    current = { ...result, version: current.version };
+  }
+  const { version: _v, ...body } = current;
+  const stamped = { ...body, created: new Date().toISOString() };
+  validateTimeline({ ...stamped, version: 999 }, ctx);
+  const saved = saveTimeline(project, stamped);
+  return { saved, summaries };
+}
+
+/** Timeline JSON + clip metadata, shaped for the UI's timeline panel. */
+function timelineForUi(project, version) {
+  const timeline = loadTimeline(project, version);
+  const db = openDb(project);
+  const clips = {};
+  for (const c of timeline.clips) {
+    if (clips[c.clip_id]) continue;
+    const row = db.prepare("SELECT rel_path, duration_s FROM clips WHERE clip_id = ?").get(c.clip_id);
+    if (row) clips[c.clip_id] = { rel_path: row.rel_path, duration_s: row.duration_s };
+  }
+  db.close();
+  return {
+    timeline,
+    duration_s: Math.round(computeDuration(timeline) * 10) / 10,
+    versions: listVersions(project),
+    clips,
+  };
+}
+
 async function runTool(name, input, emit, turnUsage) {
   const project = getActiveProject();
   switch (name) {
@@ -211,18 +247,7 @@ async function runTool(name, input, emit, turnUsage) {
       return `${summarizeTimeline(timeline)}\nAll versions: ${listVersions(project).join(", ")}`;
     }
     case "apply_timeline_edit": {
-      const ctx = validationContextFor(project);
-      let current = loadTimeline(project, input.base_version);
-      const summaries = [];
-      for (const edit of input.edits) {
-        const { result, summary } = applyEdit(current, edit);
-        summaries.push(summary);
-        current = { ...result, version: current.version };
-      }
-      const { version: _v, ...body } = current;
-      const stamped = { ...body, created: new Date().toISOString() };
-      validateTimeline({ ...stamped, version: 999 }, ctx);
-      const saved = saveTimeline(project, stamped);
+      const { saved, summaries } = applyEditsAndSave(project, input.edits, input.base_version);
       return `Saved v${saved.version} (${computeDuration(saved).toFixed(1)}s): ${summaries.join("; ")}\n${summarizeTimeline(saved)}`;
     }
     case "search_music": {
@@ -276,6 +301,7 @@ Music: search_music → download_music → apply_timeline_edit with {op:"set_mus
 
 Rules:
 - Timeline versions are immutable; edits create new versions. The user can have several cuts in flight — track versions carefully and always say which version you acted on.
+- The user can also create versions directly in the UI's timeline panel (e.g. drag-to-reorder). If a version they mention is unfamiliar, call get_timeline to see the current version list before acting.
 - Always render_preview after proposing or editing unless the user says not to.
 - Never call render_final unless the user explicitly asks for a final render of a specific version.
 - Be concise. The UI shows renders as embedded videos automatically — don't paste URLs into your reply.
@@ -470,6 +496,49 @@ const server = https.createServer(
     } else if (req.method === "GET" && pathname === "/api/music/library") {
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify({ tracks: listMusic() }));
+    } else if (req.method === "GET" && pathname === "/api/status") {
+      try {
+        const project = getActiveProject();
+        const db = openDb(project);
+        const clips = db.prepare("SELECT COUNT(*) n FROM clips").get().n;
+        const segments = db.prepare("SELECT COUNT(*) n FROM segments").get().n;
+        db.close();
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ project: project.meta.name, clips, segments, versions: listVersions(project) }));
+      } catch (err) {
+        res.writeHead(500, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: String(err?.message ?? err) }));
+      }
+    } else if (req.method === "GET" && pathname === "/api/timeline") {
+      try {
+        const q = new URL(req.url, "https://x").searchParams;
+        const version = q.get("version") ? Number(q.get("version")) : undefined;
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify(timelineForUi(getActiveProject(), version)));
+      } catch (err) {
+        res.writeHead(500, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: String(err?.message ?? err) }));
+      }
+    } else if (req.method === "POST" && pathname === "/api/timeline/edit") {
+      let body = "";
+      req.on("data", (c) => (body += c));
+      req.on("end", () => {
+        try {
+          const { edits, base_version } = JSON.parse(body || "{}");
+          if (!Array.isArray(edits) || !edits.length) throw new Error("edits[] required");
+          const project = getActiveProject();
+          const { saved, summaries } = applyEditsAndSave(project, edits, base_version);
+          const summary = `Saved v${saved.version}: ${summaries.join("; ")}`;
+          // Log UI edits in the transcript so reloads (and the user) see what happened.
+          transcript.push({ type: "text", text: `🖱️ ${summary} (edited in the timeline panel)` });
+          saveChatState();
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end(JSON.stringify({ version: saved.version, summary, ...timelineForUi(project, saved.version) }));
+        } catch (err) {
+          res.writeHead(500, { "content-type": "application/json" });
+          res.end(JSON.stringify({ error: String(err?.message ?? err) }));
+        }
+      });
     } else if (req.method === "GET" && pathname === "/api/renders") {
       try {
         const project = getActiveProject();
