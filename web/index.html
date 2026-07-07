@@ -77,7 +77,8 @@
   .striplabel { color:var(--dim); font-size:11.5px; margin-top:6px; }
   .strip { display:flex; gap:3px; align-items:stretch; min-height:50px; margin:4px 0; }
   .shot { position:relative; border-radius:8px; background:#20334d; border:1px solid #33507a; padding:5px 7px; min-width:34px; overflow:hidden; font-size:11.5px; line-height:1.3; }
-  .strip.drag .shot { cursor:grab; }
+  .strip.drag .shot { cursor:grab; user-select:none; touch-action:none; }
+  .strip.drag .shot.dragging { cursor:grabbing; }
   .shot .n { font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .shot .d { color:var(--dim); font-variant-numeric:tabular-nums; }
   .shot.sel { outline:2px solid var(--accent); }
@@ -489,26 +490,62 @@ function renderStrip(strip, data, { diff, draggable, onReorder, onSelect } = {})
     if (diff?.has(c.id)) el.classList.add(diff.get(c.id));
     if (onSelect) el.addEventListener("click", () => onSelect(c, el));
     if (draggable) {
-      el.draggable = true;
-      el.addEventListener("dragstart", (e) => { e.dataTransfer.setData("text/plain", c.id); el.classList.add("dragging"); });
-      el.addEventListener("dragend", () => el.classList.remove("dragging"));
-      el.addEventListener("dragover", (e) => {
-        e.preventDefault();
-        const before = e.offsetX < el.offsetWidth / 2;
-        el.classList.toggle("dropbefore", before);
-        el.classList.toggle("dropafter", !before);
-      });
-      el.addEventListener("dragleave", () => el.classList.remove("dropbefore", "dropafter"));
-      el.addEventListener("drop", (e) => {
-        e.preventDefault();
-        const before = el.classList.contains("dropbefore");
-        el.classList.remove("dropbefore", "dropafter");
-        const draggedId = e.dataTransfer.getData("text/plain");
-        if (!draggedId || draggedId === c.id) return;
-        // Final index in the post-removal array (applyEdit removes then splices).
-        const order = clips.map((x) => x.id).filter((id) => id !== draggedId);
-        const toIndex = order.indexOf(c.id) + (before ? 0 : 1);
-        onReorder(draggedId, toIndex);
+      // Pointer-event drag (not HTML5 DnD, which is unreliable in nested
+      // flex/scroll containers and dead on touch). Click still selects:
+      // a press that never crosses the movement threshold is left alone.
+      el.addEventListener("pointerdown", (e) => {
+        if (e.button !== 0) return;
+        const startX = e.clientX, startY = e.clientY;
+        let dragging = false;
+        const others = () => [...strip.querySelectorAll(".shot")].filter((s) => s !== el);
+        const clearMarks = () => strip.querySelectorAll(".dropbefore,.dropafter").forEach((s) => s.classList.remove("dropbefore", "dropafter"));
+
+        const findTarget = (x, y) => {
+          for (const s of others()) {
+            const r = s.getBoundingClientRect();
+            if (x >= r.left - 4 && x <= r.right + 4 && y >= r.top - 20 && y <= r.bottom + 20) {
+              return { s, before: x < r.left + r.width / 2 };
+            }
+          }
+          return null;
+        };
+
+        const onMove = (ev) => {
+          if (!dragging) {
+            if (Math.hypot(ev.clientX - startX, ev.clientY - startY) < 6) return;
+            dragging = true;
+            el.classList.add("dragging");
+            el.setPointerCapture?.(ev.pointerId);
+          }
+          ev.preventDefault();
+          clearMarks();
+          const t = findTarget(ev.clientX, ev.clientY);
+          if (t) t.s.classList.add(t.before ? "dropbefore" : "dropafter");
+        };
+
+        const onUp = (ev) => {
+          window.removeEventListener("pointermove", onMove);
+          window.removeEventListener("pointerup", onUp);
+          window.removeEventListener("pointercancel", onUp);
+          if (!dragging) return; // plain click — let the click handler select
+          el.classList.remove("dragging");
+          clearMarks();
+          const t = findTarget(ev.clientX, ev.clientY);
+          if (!t) return;
+          const targetIndex = [...strip.querySelectorAll(".shot")].indexOf(t.s);
+          const targetClip = clips[targetIndex];
+          if (!targetClip || targetClip.id === c.id) return;
+          // Final index in the post-removal array (applyEdit removes then splices).
+          const order = clips.map((x) => x.id).filter((id) => id !== c.id);
+          const toIndex = order.indexOf(targetClip.id) + (t.before ? 0 : 1);
+          // Suppress the click that follows pointerup after a drag.
+          el.addEventListener("click", (ce) => ce.stopImmediatePropagation(), { capture: true, once: true });
+          onReorder(c.id, toIndex);
+        };
+
+        window.addEventListener("pointermove", onMove);
+        window.addEventListener("pointerup", onUp);
+        window.addEventListener("pointercancel", onUp);
       });
     }
     strip.appendChild(el);
