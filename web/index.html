@@ -16,6 +16,9 @@
   header button { background:none; border:1px solid var(--border); color:var(--dim); border-radius:8px; padding:6px 12px; cursor:pointer; font-size:13px; }
   header button:hover { color:var(--text); border-color:var(--dim); }
   #log { flex:1; overflow-y:auto; padding:20px; display:flex; flex-direction:column; gap:12px; max-width:880px; width:100%; margin:0 auto; }
+  /* The log scrolls — its children must never flex-shrink, or stacked players get
+     compressed into slivers once content exceeds the viewport. */
+  #log > * { flex-shrink:0; }
   .msg { padding:10px 14px; border-radius:12px; max-width:88%; overflow-wrap:break-word; }
   .msg p { margin:0 0 8px; } .msg p:last-child { margin:0; }
   .msg ul { margin:4px 0 8px 20px; } .msg li { margin:2px 0; }
