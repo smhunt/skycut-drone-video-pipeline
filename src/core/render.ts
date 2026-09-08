@@ -3,7 +3,9 @@ import path from "node:path";
 import { UserError } from "./errors.js";
 import { type Project, assertSourceMounted } from "./project.js";
 import { openDb, getClip, type ClipRow } from "./graph.js";
-import { runFfmpeg, runFfprobe, hasVideotoolbox, hasDrawtext } from "./ffmpeg.js";
+import { execa } from "execa";
+import { fileURLToPath } from "node:url";
+import { runFfmpeg, runFfprobe, hasVideotoolbox } from "./ffmpeg.js";
 import type { Timeline, TimelineClip, TextOverlay } from "../schemas/timeline.js";
 import type { ProgressReporter } from "./progress.js";
 import { mapConcurrent } from "./concurrency.js";
@@ -25,7 +27,9 @@ export interface RenderResult {
 const PREVIEW_HEIGHT = 720;
 const FINAL_MAX_WIDTH = 3840;
 const FINAL_MAX_HEIGHT = 2160;
-const MAC_FONT = "/System/Library/Fonts/Helvetica.ttc";
+// Text is rasterised to PNGs (see tools/make_text_png.py) because this ffmpeg
+// is built without libfreetype — no drawtext/subtitles/ass filter exists.
+const TEXT_PNG_SCRIPT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../tools/make_text_png.py");
 
 interface OutputFormat {
   width: number;
@@ -113,24 +117,39 @@ async function renderIntermediate(
   );
 }
 
-function escapeDrawtext(text: string): string {
-  return text.replace(/\\/g, "\\\\").replace(/'/g, "\\\\'").replace(/:/g, "\\:").replace(/%/g, "\\%");
+/** Escape a path for use inside a filtergraph (movie=...). */
+function escapeFilterPath(p: string): string {
+  return p.replace(/\\/g, "\\\\").replace(/:/g, "\\:").replace(/'/g, "\\'").replace(/([[\],;])/g, "\\$1");
 }
 
-async function overlayFilters(overlays: TextOverlay[], fmt: OutputFormat): Promise<string[]> {
-  // No drawtext filter or no usable font — skip overlays rather than fail the render.
-  if (!(await hasDrawtext()) || !fs.existsSync(MAC_FONT)) return [];
-  const sizeMap = { small: 24, medium: 18, large: 12 } as const;
-  return overlays.map((o) => {
-    const fontsize = Math.round(fmt.height / sizeMap[o.size]);
-    const y =
-      o.position === "lower-third" ? `${Math.round(fmt.height * 0.78)}` : o.position === "top" ? `${Math.round(fmt.height * 0.08)}` : "(h-text_h)/2";
-    return (
-      `drawtext=fontfile=${MAC_FONT}:text='${escapeDrawtext(o.text)}':` +
-      `fontsize=${fontsize}:fontcolor=white:borderw=2:bordercolor=black@0.5:` +
-      `x=(w-text_w)/2:y=${y}:enable='between(t,${o.t_in},${o.t_out})'`
-    );
-  });
+async function overlayChains(
+  overlays: TextOverlay[],
+  fmt: OutputFormat,
+  workDir: string,
+  inputLabel: string
+): Promise<{ chains: string[]; outLabel: string }> {
+  if (!overlays.length) return { chains: [], outLabel: inputLabel };
+  const chains: string[] = [];
+  let label = inputLabel;
+  for (const [i, o] of overlays.entries()) {
+    const png = path.join(workDir, `overlay_${i}.png`);
+    await execa("python3", [
+      TEXT_PNG_SCRIPT,
+      png,
+      String(fmt.width),
+      String(fmt.height),
+      o.position,
+      o.size,
+      o.text,
+    ]);
+    // Full-frame RGBA PNG, so compositing is a plain overlay at the origin.
+    const src = `[ovlsrc${i}]`;
+    const out = i === overlays.length - 1 ? "[vtext]" : `[vovl${i}]`;
+    chains.push(`movie=${escapeFilterPath(png)}${src}`);
+    chains.push(`${label}${src}overlay=0:0:enable='between(t,${o.t_in},${o.t_out})'${out}`);
+    label = out;
+  }
+  return { chains, outLabel: label };
 }
 
 export async function renderTimeline(
@@ -185,11 +204,9 @@ export async function renderTimeline(
     }
 
     // 3. Text overlays on the assembled stream.
-    const overlays = await overlayFilters(timeline.text_overlays ?? [], fmt);
-    if (overlays.length) {
-      chains.push(`${currentLabel}${overlays.join(",")}[vtext]`);
-      currentLabel = "[vtext]";
-    }
+    const overlay = await overlayChains(timeline.text_overlays ?? [], fmt, workDir, currentLabel);
+    chains.push(...overlay.chains);
+    currentLabel = overlay.outLabel;
     // Single-clip, no-op graph still needs a named output.
     if (chains.length === 0) {
       chains.push(`${currentLabel}null[vout]`);
