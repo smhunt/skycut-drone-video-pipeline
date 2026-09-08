@@ -44,7 +44,8 @@ export function registerTimelineTools(server: McpServer): void {
         "Apply structured edits to the latest (or given) timeline version, or replace it wholesale. " +
         "Versions are immutable — the result is always saved as a NEW version. " +
         'Ops: insert {at_index, clip}, remove {id}, reorder {id, to_index}, retrim {id, in_s?, out_s?, speed?}, ' +
-        "set_transition {id, transition|null}, set_music {music|null}. " +
+        "set_transition {id, transition|null}, set_music {music|null}, " +
+        "set_text_overlays {text_overlays|null} (timeline-level titles; NOT clips — no clip_id). " +
         'Example: { edits: [{ op: "retrim", id: "c3", out_s: 51.0 }] }',
       inputSchema: {
         edits: z.array(EditSchema).optional().describe("Structured edit operations, applied in order"),

@@ -1,7 +1,14 @@
 import fs from "node:fs";
 import path from "node:path";
 import { z } from "zod";
-import { TimelineSchema, TimelineClipSchema, MusicSchema, TransitionSchema, type Timeline } from "../schemas/timeline.js";
+import {
+  TimelineSchema,
+  TimelineClipSchema,
+  MusicSchema,
+  TransitionSchema,
+  TextOverlaySchema,
+  type Timeline,
+} from "../schemas/timeline.js";
 import { UserError } from "./errors.js";
 import type { Project } from "./project.js";
 import { openDb, getClip } from "./graph.js";
@@ -61,6 +68,15 @@ export function validateTimeline(data: unknown, ctx: ValidationContext): Timelin
           `clip '${clip.id}': transition (${clip.transition_out.duration_s}s) is not shorter than the adjacent clips`
         );
       }
+    }
+  }
+
+  const cutDuration = computeDuration(timeline);
+  for (const overlay of timeline.text_overlays ?? []) {
+    if (overlay.t_out > cutDuration + 0.05) {
+      problems.push(
+        `text overlay "${overlay.text}": t_out ${overlay.t_out}s is beyond the cut's ${cutDuration.toFixed(1)}s duration`
+      );
     }
   }
 
@@ -147,6 +163,7 @@ export const EditSchema = z.discriminatedUnion("op", [
   }),
   z.object({ op: z.literal("set_transition"), id: z.string(), transition: TransitionSchema.nullable() }),
   z.object({ op: z.literal("set_music"), music: MusicSchema.nullable() }),
+  z.object({ op: z.literal("set_text_overlays"), text_overlays: z.array(TextOverlaySchema).nullable() }),
 ]);
 
 export type TimelineEdit = z.infer<typeof EditSchema>;
@@ -215,6 +232,17 @@ export function applyEdit(timeline: Timeline, edit: TimelineEdit): { result: Omi
       } else {
         next.music = edit.music;
         summary = `set music: ${path.basename(edit.music.path)} (${edit.music.gain_db} dB, ${edit.music.fade_out_s}s fade-out)`;
+      }
+      break;
+    }
+    case "set_text_overlays": {
+      // Overlays are timeline-level graphics, NOT clips — they carry no clip_id.
+      if (edit.text_overlays === null || edit.text_overlays.length === 0) {
+        delete next.text_overlays;
+        summary = "removed all text overlays";
+      } else {
+        next.text_overlays = edit.text_overlays;
+        summary = `set ${edit.text_overlays.length} text overlay${edit.text_overlays.length === 1 ? "" : "s"}: ${edit.text_overlays.map((o) => `"${o.text}"`).join(", ")}`;
       }
       break;
     }

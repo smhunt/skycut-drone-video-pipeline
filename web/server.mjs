@@ -125,7 +125,7 @@ const TOOLS = [
   {
     name: "apply_timeline_edit",
     description:
-      'Apply structured edits to a timeline (latest or base_version), saving a NEW version. Ops: {op:"retrim",id,in_s?,out_s?,speed?}, {op:"remove",id}, {op:"reorder",id,to_index}, {op:"insert",at_index,clip}, {op:"set_transition",id,transition|null}, {op:"set_music",music|null}.',
+      'Apply structured edits to a timeline (latest or base_version), saving a NEW version. Ops: {op:"retrim",id,in_s?,out_s?,speed?}, {op:"remove",id}, {op:"reorder",id,to_index}, {op:"insert",at_index,clip}, {op:"set_transition",id,transition|null}, {op:"set_music",music|null}, {op:"set_text_overlays",text_overlays:[{text,t_in,t_out,position:"lower-third"|"center"|"top",size:"small"|"medium"|"large"}]|null}. Text overlays are timeline-level graphics with NO clip_id and are NOT clips — use set_text_overlays (whole-array replace) to add titles; never insert them as clips. Overlay times are seconds on the finished cut.',
     input_schema: {
       type: "object",
       properties: {

@@ -24,13 +24,15 @@ export const MusicSchema = z.object({
   fade_out_s: z.number().min(0).default(2),
 });
 
-export const TextOverlaySchema = z.object({
-  text: z.string().min(1),
-  t_in: z.number().min(0),
-  t_out: z.number().positive(),
-  position: z.enum(["lower-third", "center", "top"]).default("lower-third"),
-  size: z.enum(["small", "medium", "large"]).default("medium"),
-});
+export const TextOverlaySchema = z
+  .object({
+    text: z.string().min(1),
+    t_in: z.number().min(0),
+    t_out: z.number().positive(),
+    position: z.enum(["lower-third", "center", "top"]).default("lower-third"),
+    size: z.enum(["small", "medium", "large"]).default("medium"),
+  })
+  .refine((o) => o.t_out > o.t_in, { message: "t_out must be greater than t_in" });
 
 export const TimelineSchema = z.object({
   version: z.number().int().positive(),
