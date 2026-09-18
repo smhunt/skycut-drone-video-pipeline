@@ -29,6 +29,17 @@ import { serveFile } from "./serve-file.mjs";
 const PORT = 3080;
 const MODEL = "claude-sonnet-4-6";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// Load ../.env (gitignored) so the API key survives server restarts; real env wins.
+const envFile = path.join(__dirname, "..", ".env");
+if (fs.existsSync(envFile)) {
+  for (const line of fs.readFileSync(envFile, "utf8").split("\n")) {
+    const m = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$/.exec(line);
+    if (m && !line.trimStart().startsWith("#") && !(m[1] in process.env) && m[2]) {
+      process.env[m[1]] = m[2].replace(/^["']|["']$/g, "");
+    }
+  }
+}
 const PROJECTS_ROOT = path.join(skycutHome(), "projects");
 const CHAT_DIR = path.join(skycutHome(), "chat");
 const CHAT_STATE = path.join(CHAT_DIR, "state.json");
