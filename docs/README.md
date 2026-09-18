@@ -4,13 +4,15 @@ SkyCut is a local-first MCP server that turns a folder of raw drone footage into
 
 ## System Overview
 
+Two front ends share one core. The MCP server speaks stdio to Claude Code / Claude Desktop; the web chat UI (`npm run web`) runs its own Claude agent in-process and imports the same `dist/core/*` modules directly — no MCP hop.
+
 ```
-                        Claude Code / Claude Desktop
-                                   │  (MCP, stdio JSON-RPC)
-                                   ▼
-┌──────────────────────────── SkyCut MCP Server ────────────────────────────┐
+    Claude Code / Claude Desktop          Browser (chat UI, :3080)
+               │  (MCP, stdio JSON-RPC)              │  (HTTPS + SSE)
+               ▼                                     ▼
+┌─────────────────────────────── SkyCut core ───────────────────────────────┐
 │                                                                           │
-│  tools/  (12 skycut_* tools — thin wrappers, zod input schemas)           │
+│  tools/  (12 skycut_* tools)  ·  web/server.mjs (chat agent + HTTP/SSE)   │
 │     │                                                                     │
 │  core/                                                                    │
 │  ┌─────────┐  ┌────────┐  ┌────────┐  ┌──────────┐  ┌────────┐  ┌───────┐ │
@@ -46,7 +48,8 @@ The human stays in the loop at two points by design: reviewing the proposed time
 | Processes | `execa` | every ffmpeg/ffprobe call logged to `logs/ffmpeg.log` |
 | AI | `@anthropic-ai/sdk`, `claude-sonnet-4-6` | vision frame analysis + director cut proposal |
 | Video | ffmpeg / ffprobe | `h264_videotoolbox` (preview), `hevc_videotoolbox` (final); libx264 fallback where videotoolbox is unavailable |
-| Tests | vitest | 56 tests; AI clients injected via interfaces and mocked |
+| Tests | vitest | 57 tests; AI clients injected via interfaces and mocked |
+| Web UI | vanilla JS single file + Plyr | `web/index.html` (UI) + `web/server.mjs` (agent/API); no build step |
 
 ## Source Layout
 
@@ -71,6 +74,13 @@ src/
   schemas/timeline.ts   zod timeline schema (source of truth)
   test/                 fixtures: testsrc clip generator, synthetic footage graph
 eval/questions.xml      10 executable Q&A evals
+web/
+  server.mjs            chat agent (Claude + tool use over dist/core), HTTP + SSE API,
+                        same-origin /files media serving, persistent chat transcript
+  index.html            entire UI: chat, timeline panel (thumbnails, drag reorder,
+                        edge-drag retrim, version compare), music, renders, about modal
+  music.mjs             Jamendo search + download into ~/SkyCut/music
+  serve-file.mjs        static serving with HTTP Range support (Safari video)
 ```
 
 ## Key Design Decisions
@@ -96,6 +106,9 @@ The USB source can disappear at any time:
 
 ### Render assembly
 Stage 1 normalizes each timeline clip into an intermediate (trim → speed via `setpts` → scale + letterbox pad → fps → yuv420p). Stage 2 folds intermediates pairwise in one `filter_complex`: `xfade` where a transition is set (offset computed from ffprobed intermediate durations), `concat` for hard cuts, then optional drawtext overlays and a music chain (`-stream_loop -1` → `atrim` → `loudnorm I=-18` → gain → `afade` out).
+
+### Web UI: one code path for edits, same-origin media
+The chat server runs its own Claude agent in-process against `dist/core` (rebuild before `npm run web`). Chat-agent edits and timeline-panel edits (drag reorder, edge-drag retrim) go through the same `applyEditsAndSave` — validate, then save an immutable `v<N+1>` — so both surfaces share one version history, and panel edits are logged into the chat transcript. All media (renders, proxies, keyframe thumbnails, music) is served **same-origin** at `/files/*` with HTTP Range support; cross-origin serving broke inline players whenever the second origin's cert exception was missing. Tool activity streams over SSE with per-item progress; API spend is tracked per turn and per session.
 
 ## Workspace Layout (per project)
 

@@ -132,6 +132,7 @@ Applies structured edits (in order) or replaces the timeline wholesale. The resu
 | retrim | `{ "op": "retrim", "id": "c3", "in_s"?, "out_s"?, "speed"? }` |
 | set_transition | `{ "op": "set_transition", "id": "c3", "transition": { "type": "xfade", "style": "fade", "duration_s": 0.75 } }` — `null` for a hard cut |
 | set_music | `{ "op": "set_music", "music": { "path", "gain_db", "fade_out_s" } }` — `null` to remove |
+| set_text_overlays | `{ "op": "set_text_overlays", "text_overlays": [ { "text", "t_in", "t_out", "position"?, "size"? } ] }` — replaces the whole list; `null` to remove all |
 
 - **Output:** `{ timeline, changes[] }` — per-op human-readable summaries + new shot list
 
