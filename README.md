@@ -117,4 +117,5 @@ npm run web       # chat UI on https://dev.ecoworks.ca:3080 (needs ANTHROPIC_API
 - **[docs/README.md](docs/README.md)** — architecture, design decisions, workspace layout, troubleshooting, extending
 - **[docs/TOOLS.md](docs/TOOLS.md)** — complete tool API reference, timeline schema, edit operations, error conventions
 - **[CHANGELOG.md](CHANGELOG.md)** — version history
+- **[SkyCut Overview deck](https://claude.ai/artifact/XPLHFtii2KiwVNTSZo2Dzc)** — 10-slide presentation: the problem, pipeline, footage graph, director, guardrails, both front ends, stack and roadmap (private Claude artifact — ask the owner for access)
 - `prompt_plan.md` (original spec) and `progress.md` (per-phase build history)
