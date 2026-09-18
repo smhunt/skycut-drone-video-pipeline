@@ -110,3 +110,11 @@
 # ✅ All phases complete (2026-07-05)
 
 12 MCP tools, 56 passing tests, E2E happy path verified over stdio. Vision + director run live behind `ANTHROPIC_API_KEY` (mocked in tests). See README for Claude Code / Claude Desktop setup.
+
+---
+
+# Post-MVP: the web studio (2026-07-05 → ongoing)
+
+The spec's deliverable is done; this file's phase log ends here. Development since has been the local web chat UI (`npm run web` → https://dev.ecoworks.ca:3080, media file server on :5502), tracked per-version in **CHANGELOG.md** and the in-app About modal. The living roadmap is the `ROADMAP` const in `web/index.html`.
+
+Era highlights: v0.2.0 chat studio with SSE tool progress · v0.3.0 royalty-free music, cost tracking, Plyr players · v0.4.0 visual timeline panel with drag-reorder and version compare · v0.5.0 edge-drag retrim and keyframe thumbnails (57 tests).

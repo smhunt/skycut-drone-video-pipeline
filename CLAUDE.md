@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **SkyCut** — a local-first MCP server (stdio, TypeScript) that converts raw drone footage into polished marketing video cuts via an agent-driven pipeline: scan → analyze (vision) → footage graph → propose cut → human approve → render.
 
-**`prompt_plan.md` is the authoritative spec — read it fully before writing code.** The repo may be greenfield (spec only); if `progress.md` exists it records which build phases have shipped. Execute phases in order, one commit per phase minimum, and update `progress.md` at every phase boundary.
+**Current state: fully built.** All 8 spec phases shipped 2026-07-05 (`progress.md` has the per-phase log), and a local web chat UI has grown on top (v0.5.0): `npm run web` → https://dev.ecoworks.ca:3080 (agent chat, visual timeline panel, music, renders; needs `ANTHROPIC_API_KEY` in env), media file server on :5502 — both ports registered in `~/.claude/PORTS.md`. New work comes from the roadmap (the `ROADMAP` const in `web/index.html`, shown in the app's About modal), tracked in `CHANGELOG.md` with semver bumps (`package.json` + `APP_VERSION` + `CHANGELOG` const). `prompt_plan.md` is the original spec — background reference, not a to-do list.
 
 ## Commands
 
@@ -16,6 +16,7 @@ Defined at Phase 0 scaffold (check `package.json` for the current set):
 npm run build       # compile TypeScript — must be clean before a phase counts as done
 node dist/index.js  # run the MCP server (stdio transport)
 npm test            # unit tests (vision calls mocked; live only behind ANTHROPIC_API_KEY)
+npm run web         # chat UI on https://dev.ecoworks.ca:3080 — rebuild first (imports dist/), key in env
 ```
 
 Verify the server boots and lists tools with MCP Inspector: `npx @modelcontextprotocol/inspector node dist/index.js`
