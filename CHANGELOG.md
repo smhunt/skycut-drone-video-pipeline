@@ -2,6 +2,13 @@
 
 All notable changes to SkyCut are documented here. Versioning follows [semver](https://semver.org/).
 
+## [0.5.0] - 2026-09-18
+
+### Added
+- **Retrim by dragging shot edges** — each shot in the timeline panel now has grab handles on both edges. Dragging adjusts the in/out points live (pixel deltas map to source seconds through the shot's width and speed, clamped to `[0, source duration]` with a 0.2 s minimum), and releasing posts a structured `retrim` edit that saves a new immutable version. Server-side validation failures (e.g. a transition longer than the trimmed clip) surface in the chat log and the strip reverts
+- **Keyframe thumbnails** — timeline shots display the vision-analysis keyframe nearest their in-point as a background image (served same-origin from `frames/<clip_id>/`), with a darkening gradient so labels stay legible. Shots fall back to the flat style when a clip hasn't been analyzed yet
+- `/api/timeline` now includes per-clip keyframe info (count, interval, base URL) alongside `rel_path` and `duration_s`
+
 ## [0.4.0] - 2026-07-07
 
 ### Added

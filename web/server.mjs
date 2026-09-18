@@ -21,6 +21,7 @@ import {
   computeDuration,
 } from "../dist/core/timeline.js";
 import { renderTimeline } from "../dist/core/render.js";
+import { FRAME_INTERVAL_S } from "../dist/core/frames.js";
 import { openDb } from "../dist/core/graph.js";
 import { searchMusic, downloadMusic, listMusic, MUSIC_DIR } from "./music.mjs";
 import { serveFile } from "./serve-file.mjs";
@@ -200,7 +201,15 @@ function timelineForUi(project, version) {
   for (const c of timeline.clips) {
     if (clips[c.clip_id]) continue;
     const row = db.prepare("SELECT rel_path, duration_s FROM clips WHERE clip_id = ?").get(c.clip_id);
-    if (row) clips[c.clip_id] = { rel_path: row.rel_path, duration_s: row.duration_s };
+    if (!row) continue;
+    // Keyframes (if analysis has run) let the UI paint thumbnails on timeline shots.
+    let frames = null;
+    const framesDir = path.join(project.paths.frames, c.clip_id);
+    if (fs.existsSync(framesDir)) {
+      const count = fs.readdirSync(framesDir).filter((f) => f.endsWith(".jpg")).length;
+      if (count) frames = { count, interval_s: FRAME_INTERVAL_S, base_url: renderUrl(framesDir) };
+    }
+    clips[c.clip_id] = { rel_path: row.rel_path, duration_s: row.duration_s, frames };
   }
   db.close();
   return {

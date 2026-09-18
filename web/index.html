@@ -76,11 +76,18 @@
   .tl .cmp { color:var(--dim); font-size:13px; display:flex; gap:5px; align-items:center; cursor:pointer; user-select:none; }
   .striplabel { color:var(--dim); font-size:11.5px; margin-top:6px; }
   .strip { display:flex; gap:3px; align-items:stretch; min-height:50px; margin:4px 0; }
-  .shot { position:relative; border-radius:8px; background:#20334d; border:1px solid #33507a; padding:5px 7px; min-width:34px; overflow:hidden; font-size:11.5px; line-height:1.3; }
+  .shot { position:relative; border-radius:8px; background:#20334d; border:1px solid #33507a; padding:5px 7px; min-width:34px; overflow:hidden; font-size:11.5px; line-height:1.3; background-size:cover; background-position:center; }
   .strip.drag .shot { cursor:grab; user-select:none; touch-action:none; }
   .strip.drag .shot.dragging { cursor:grabbing; }
   .shot .n { font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .shot .d { color:var(--dim); font-variant-numeric:tabular-nums; }
+  .shot.thumbed .n, .shot.thumbed .d { text-shadow:0 1px 3px rgba(0,0,0,.9); }
+  .shot.thumbed .d { color:#cdd6e4; }
+  .shot .handle { position:absolute; top:0; bottom:0; width:9px; cursor:ew-resize; touch-action:none; opacity:0; transition:opacity .15s; background:rgba(122,162,247,.4); }
+  .shot .handle.l { left:0; border-radius:8px 0 0 8px; }
+  .shot .handle.r { right:0; border-radius:0 8px 8px 0; }
+  .strip.drag .shot:hover .handle, .shot.trimming .handle { opacity:1; }
+  .shot.trimming { outline:2px solid #c9a227; }
   .shot.sel { outline:2px solid var(--accent); }
   .shot.dragging { opacity:.4; }
   .shot.dropbefore { box-shadow:-3px 0 0 var(--ok); }
@@ -405,8 +412,12 @@ document.getElementById("reset").addEventListener("click", async () => {
 });
 
 // ---- app metadata (About modal) ----
-const APP_VERSION = "0.4.0";
+const APP_VERSION = "0.5.0";
 const CHANGELOG = [
+  { version: "0.5.0", date: "2026-09-18", changes: [
+    "Retrim by dragging shot edges — grab either edge of a shot in the timeline panel, drag to adjust in/out points (clamped to the source clip), release to save a new version",
+    "Keyframe thumbnails — timeline shots show the analysis keyframe nearest their in-point as a background image",
+  ]},
   { version: "0.4.0", date: "2026-07-07", changes: [
     "Timeline panel — visual shot strip (widths ∝ duration), drag shots to reorder (saves a new version), click a shot for trim/speed/source details",
     "Version compare — pick any two versions, see both strips plus an added/removed/changed diff",
@@ -429,17 +440,15 @@ const CHANGELOG = [
 const HOW_IT_WORKS = [
   { icon: "🔍", title: "Scan & analyze (already done for this project)", text: "Footage is probed and proxied, then Claude vision scores a frame every 4 seconds — subjects, camera movement, exposure, aesthetic 0–10 — into a searchable footage graph." },
   { icon: "💬", title: "Describe the cut you want", text: "The AI director assembles a timeline from the best matching segments. Every proposal and every edit is saved as a new immutable version — nothing is ever lost." },
-  { icon: "🎞️", title: "Preview & iterate", text: "Previews render locally at 720p in a minute or two and embed right here. Ask for changes in chat, or open the Timeline panel and drag shots to reorder them yourself." },
+  { icon: "🎞️", title: "Preview & iterate", text: "Previews render locally at 720p in a minute or two and embed right here. Ask for changes in chat, or open the Timeline panel and drag shots to reorder — or drag a shot's edges to retrim it — yourself." },
   { icon: "🎵", title: "Add music", text: "Search royalty-free tracks, preview them, add to your library, and say which version to put them on. The bed is loudness-normalized, looped to length, and faded out." },
   { icon: "🏁", title: "Finalize", text: "Only when you explicitly ask: a full-quality 4K HEVC render from the original files on the source drive." },
 ];
 const ROADMAP = [
   { category: "In Progress", icon: "🚧", items: [
-    { t: "Timeline panel v2 — retrim by dragging shot edges", pri: "high" },
+    { t: "Scrubber synced between timeline strip and preview player", pri: "medium" },
   ]},
   { category: "Planned", icon: "📋", items: [
-    { t: "Keyframe thumbnails inside timeline shots", pri: "high" },
-    { t: "Scrubber synced between timeline strip and preview player", pri: "medium" },
     { t: "Text-overlay editor (titles, attribution lines)", pri: "medium" },
     { t: "Multi-project switcher in the header", pri: "medium" },
     { t: "Export cut as EDL / FCPXML for finishing in an NLE", pri: "low" },
@@ -478,10 +487,17 @@ function shotEl(c, i, data) {
   const src = data.clips[c.clip_id];
   el.title = `${c.label ?? c.id} · ${src?.rel_path ?? c.clip_id} · ${c.in_s}–${c.out_s}s${c.speed !== 1 ? ` @${c.speed}x` : ""}`;
   el.innerHTML = `<div class="n">${esc(c.label ?? c.id)}</div><div class="d">${fmtS(effDur(c))}${c.speed !== 1 ? ` @${c.speed}x` : ""}</div>`;
+  const fr = src?.frames; // keyframe nearest the shot's in-point (frame 0001 is t=0)
+  if (fr?.count) {
+    const idx = Math.min(fr.count, Math.max(1, Math.round(c.in_s / fr.interval_s) + 1));
+    el.style.backgroundImage =
+      `linear-gradient(rgba(13,21,36,.45), rgba(13,21,36,.72)), url("${fr.base_url}/${String(idx).padStart(4, "0")}.jpg")`;
+    el.classList.add("thumbed");
+  }
   return el;
 }
 
-function renderStrip(strip, data, { diff, draggable, onReorder, onSelect } = {}) {
+function renderStrip(strip, data, { diff, draggable, onReorder, onRetrim, onSelect } = {}) {
   strip.innerHTML = "";
   strip.classList.toggle("drag", !!draggable);
   const clips = data.timeline.clips;
@@ -547,6 +563,52 @@ function renderStrip(strip, data, { diff, draggable, onReorder, onSelect } = {})
         window.addEventListener("pointerup", onUp);
         window.addEventListener("pointercancel", onUp);
       });
+
+      // Edge handles — drag to retrim. Pixel deltas map to source seconds via
+      // the shot's own width (width ∝ on-screen duration, × speed for source time).
+      const MIN_SRC_S = 0.2;
+      for (const side of ["l", "r"]) {
+        const h = document.createElement("div");
+        h.className = "handle " + side;
+        h.title = side === "l" ? "drag to retrim in-point" : "drag to retrim out-point";
+        h.addEventListener("pointerdown", (e) => {
+          if (e.button !== 0) return;
+          e.stopPropagation(); // don't start a reorder drag
+          e.preventDefault();
+          const src = data.clips[c.clip_id];
+          const startX = e.clientX;
+          const srcPerPx = (effDur(c) / el.getBoundingClientRect().width) * c.speed;
+          let in_s = c.in_s, out_s = c.out_s, moved = false;
+          el.classList.add("trimming");
+          h.setPointerCapture?.(e.pointerId);
+          const label = el.querySelector(".d");
+
+          const onMove = (ev) => {
+            const d = (ev.clientX - startX) * srcPerPx;
+            if (side === "l") in_s = Math.round(Math.min(Math.max(0, c.in_s + d), out_s - MIN_SRC_S) * 10) / 10;
+            else out_s = Math.round(Math.max(Math.min(c.out_s + d, src?.duration_s ?? Infinity), in_s + MIN_SRC_S) * 10) / 10;
+            moved = in_s !== c.in_s || out_s !== c.out_s;
+            el.style.flexGrow = String(Math.max((out_s - in_s) / c.speed, 0.5));
+            label.textContent = `${in_s}–${out_s}s of ${src ? fmtS(src.duration_s) : "?"}`;
+          };
+
+          const onUp = () => {
+            window.removeEventListener("pointermove", onMove);
+            window.removeEventListener("pointerup", onUp);
+            window.removeEventListener("pointercancel", onUp);
+            el.classList.remove("trimming");
+            // Suppress the click that follows pointerup so it doesn't select the shot.
+            if (moved) el.addEventListener("click", (ce) => ce.stopImmediatePropagation(), { capture: true, once: true });
+            if (moved) onRetrim(c.id, { in_s, out_s });
+            else label.textContent = `${fmtS(effDur(c))}${c.speed !== 1 ? ` @${c.speed}x` : ""}`;
+          };
+
+          window.addEventListener("pointermove", onMove);
+          window.addEventListener("pointerup", onUp);
+          window.addEventListener("pointercancel", onUp);
+        });
+        el.appendChild(h);
+      }
     }
     strip.appendChild(el);
     if (c.transition_out && i < clips.length - 1) {
@@ -597,7 +659,7 @@ document.getElementById("timeline").addEventListener("click", async () => {
     <div class="strip stripB" style="display:none"></div>
     <div class="diff" style="display:none"></div>
     <div class="detail"></div>
-    <div class="foot">drag shots to reorder — each drop saves a new version · click a shot for details</div>`;
+    <div class="foot">drag shots to reorder · drag shot edges to retrim — every drop saves a new version · click a shot for details</div>`;
   log.appendChild(panel); log.scrollTop = log.scrollHeight;
 
   const $ = (sel) => panel.querySelector(sel);
@@ -620,32 +682,34 @@ document.getElementById("timeline").addEventListener("click", async () => {
       (c.transition_out ? ` · exits via <b>${esc(c.transition_out.style)} ${c.transition_out.duration_s}s</b>` : " · hard cut out");
   };
 
-  const reorder = async (id, toIndex) => {
+  const postEdit = async (edit, what) => {
     try {
       const r = await (await fetch("/api/timeline/edit", {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ base_version: cur.timeline.version, edits: [{ op: "reorder", id, to_index: toIndex }] }),
+        body: JSON.stringify({ base_version: cur.timeline.version, edits: [edit] }),
       })).json();
       if (r.error) throw new Error(r.error);
       addMsg("bot", `🖱️ ${r.summary} (from v${cur.timeline.version}, in the timeline panel). Say *"preview v${r.version}"* to see it.`);
       cur = r;
       fillVersions(verA, r.versions, r.version);
       fillVersions(verB, r.versions.filter((v) => v !== r.version), null);
-      draw();
       refreshStats();
-    } catch (e) { addMsg("err", "Reorder failed: " + e.message); }
+    } catch (e) { addMsg("err", `${what} failed: ` + e.message); }
+    draw(); // success: show the new version; failure: revert live drag feedback
   };
+  const reorder = (id, toIndex) => postEdit({ op: "reorder", id, to_index: toIndex }, "Reorder");
+  const retrim = (id, t) => postEdit({ op: "retrim", id, ...t }, "Retrim");
 
   const draw = () => {
     $(".dur").textContent = `${cur.timeline.clips.length} shots · ${cur.duration_s}s`;
     const comparing = cmpBox.checked;
-    renderStrip($(".stripA"), cur, comparing ? { onSelect: showDetail } : { draggable: true, onReorder: reorder, onSelect: showDetail });
+    renderStrip($(".stripA"), cur, comparing ? { onSelect: showDetail } : { draggable: true, onReorder: reorder, onRetrim: retrim, onSelect: showDetail });
     $(".stripB").style.display = comparing ? "flex" : "none";
     $(".labA").style.display = $(".labB").style.display = comparing ? "block" : "none";
     $(".diff").style.display = comparing ? "block" : "none";
     $(".foot").textContent = comparing
       ? "green = added · yellow = changed · red = removed (relative to the left/base version)"
-      : "drag shots to reorder — each drop saves a new version · click a shot for details";
+      : "drag shots to reorder · drag shot edges to retrim — every drop saves a new version · click a shot for details";
   };
 
   const drawCompare = async () => {
