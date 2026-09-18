@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { initProject, getActiveProject, slugify, listVolumes } from "./project.js";
+import { initProject, getActiveProject, setActiveProject, slugify, listVolumes } from "./project.js";
 
 let home: string;
 let source: string;
@@ -54,6 +54,24 @@ describe("initProject", () => {
 
   it("rejects a missing source path with volume hint", () => {
     expect(() => initProject("/nonexistent/path/xyz")).toThrow(/does not exist/);
+  });
+});
+
+describe("setActiveProject", () => {
+  it("switches the pointer without requiring the source to be mounted", () => {
+    initProject(source, "First");
+    const other = fs.mkdtempSync(path.join(os.tmpdir(), "skycut-src3-"));
+    initProject(other, "Second");
+    fs.rmSync(other, { recursive: true, force: true }); // "unplug" Second's source
+    const back = setActiveProject("first");
+    expect(back.meta.name).toBe("First");
+    expect(getActiveProject().meta.slug).toBe("first");
+    const fwd = setActiveProject("second"); // source gone, switch still works
+    expect(fwd.meta.slug).toBe("second");
+  });
+
+  it("rejects an unknown slug", () => {
+    expect(() => setActiveProject("no-such-project")).toThrow(/No project/);
   });
 });
 

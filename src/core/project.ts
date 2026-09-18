@@ -102,6 +102,17 @@ export function initProject(sourcePath: string, name?: string): Project {
   return { meta, paths };
 }
 
+/** Point the active-project pointer at an existing project WITHOUT touching its source (works with the drive unplugged). */
+export function setActiveProject(slug: string): Project {
+  const paths = projectPaths(slug);
+  if (!fs.existsSync(paths.projectJson)) {
+    throw new UserError(`No project '${slug}' under ${path.join(skycutHome(), "projects")}.`);
+  }
+  const meta = JSON.parse(fs.readFileSync(paths.projectJson, "utf8")) as ProjectMeta;
+  fs.writeFileSync(activePointerPath(), JSON.stringify({ slug }, null, 2));
+  return { meta, paths };
+}
+
 export function getActiveProject(): Project {
   const pointer = activePointerPath();
   if (!fs.existsSync(pointer)) {

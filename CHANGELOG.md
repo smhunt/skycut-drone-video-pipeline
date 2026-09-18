@@ -2,6 +2,17 @@
 
 All notable changes to SkyCut are documented here. Versioning follows [semver](https://semver.org/).
 
+## [0.6.0] - 2026-09-18
+
+### Added
+- **Footage panel (📁)** — onboard footage without leaving the browser:
+  - **Folder browser** — volumes with free space, breadcrumb navigation, per-folder video counts (read-only listing); "Use this folder" inits the project and scans
+  - **Uploads** — drag-and-drop or file-picker upload of `.mp4/.mov/.mts/.mkv` into `~/SkyCut/uploads/<project>/` (streamed to a temp name, renamed atomically), then auto-init + scan
+  - **Scan & analyze from the UI** — SSE progress bars; the >500-frame vision cost gate surfaces an estimated dollar figure with explicit Analyze/Cancel buttons
+  - **Project list + switching** — all workspaces under `~/SkyCut/projects` with mounted/unplugged badges; switching uses the new `setActiveProject` core export so it works with the source drive unplugged, and archives the (global) chat so context doesn't leak between projects
+- New endpoints: `GET /api/projects`, `POST /api/project/switch`, `POST /api/project/init`, `GET /api/project/scan` (SSE), `GET /api/project/analyze` (SSE), `GET /api/fs/volumes`, `GET /api/fs/browse`, `PUT /api/upload`; `/api/status` now reports slug, source path and mount state
+- Long panel jobs (scan/analyze) are serialized behind the chat turn queue — no torn reads of `footage.db` while the agent is mid-turn
+
 ## [0.5.0] - 2026-09-18
 
 ### Added

@@ -100,6 +100,7 @@ The USB source can disappear at any time:
 - Proxies and sampled frames live on the internal SSD, so analysis, timeline work, and *preview* renders keep working unplugged.
 - Every tool touching originals calls `assertSourceMounted` and returns a "reconnect and retry" error instead of crashing.
 - `abs_path` is refreshed on every scan; identity survives via `clip_id`.
+- One deliberate exception to "never write near the source": browser uploads land in SkyCut-owned `~/SkyCut/uploads/<project>/`, which then serves as that project's source folder. Browsed folders are only ever read (shallow directory listings).
 
 ### AI clients are injected interfaces
 `VisionClient` and `DirectorClient` are tiny interfaces. Production wires Anthropic implementations; tests inject mocks. Model responses are treated as untrusted input: fences stripped, JSON extracted, zod-validated per item with salvage, enum values coerced (`.catch()`), and our own frame timestamps override the model's echo. The director gets exactly one retry with the validation errors appended.

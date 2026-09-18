@@ -71,6 +71,7 @@ ANTHROPIC_API_KEY=sk-ant-... npm run web   # → https://dev.ecoworks.ca:3080
 ```
 
 - **Chat agent** — a Claude-driven agent with tool use over the SkyCut core (in-process, no MCP hop): propose cuts, search moments, apply edits, and render, with SSE-streamed progress bars and per-turn/session cost tracking
+- **Footage panel** (📁) — browse volumes/folders and open one as a read-only project source, drag-and-drop video uploads (into `~/SkyCut/uploads`), scan + analyze with live progress and the vision cost gate, and switch between projects (chat archives on switch)
 - **Timeline panel** (🎞️) — visual shot strip with keyframe thumbnails; drag shots to reorder, drag shot edges to retrim (every drop saves a new immutable version); click a shot for trim/speed/source details; compare any two versions with a color-coded diff
 - **Music** (🎵) — search royalty-free tracks (Jamendo), preview in-chat, download into `~/SkyCut/music`
 - **Renders** — previews and finals embed as inline players (same-origin media with HTTP range support)

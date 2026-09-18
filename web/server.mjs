@@ -7,8 +7,10 @@ import os from "node:os";
 import { fileURLToPath } from "node:url";
 import Anthropic from "@anthropic-ai/sdk";
 
-import { getActiveProject, skycutHome } from "../dist/core/project.js";
-import { searchMoments } from "../dist/core/analyze.js";
+import { getActiveProject, setActiveProject, initProject, listVolumes, isSourceMounted, skycutHome, slugify } from "../dist/core/project.js";
+import { searchMoments, analyzeFootage } from "../dist/core/analyze.js";
+import { scanFootage } from "../dist/core/scan.js";
+import { createClaudeVision, TOKENS_PER_FRAME } from "../dist/core/vision.js";
 import { proposeCut, DIRECTOR_MODEL } from "../dist/core/director.js";
 import {
   loadTimeline,
@@ -203,6 +205,91 @@ function applyEditsAndSave(project, edits, baseVersion) {
   const saved = saveTimeline(project, stamped);
   return { saved, summaries };
 }
+
+// ---- footage onboarding (📁 Footage panel): browse, init/switch, scan, analyze, upload ----
+
+const VIDEO_EXTS = new Set([".mp4", ".mov", ".mts", ".mkv"]);
+const UPLOADS_ROOT = path.join(skycutHome(), "uploads");
+
+/** SSE response running one long job, serialized behind the chat turn queue (scan/analyze rewrite the db). */
+function sseJob(res, job) {
+  res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache", connection: "keep-alive" });
+  const emit = (event) => {
+    try {
+      res.write(`data: ${JSON.stringify(event)}\n\n`);
+    } catch {
+      /* client gone — the job finishes anyway */
+    }
+  };
+  const heartbeat = setInterval(() => emit({ type: "ping" }), 15000);
+  const myTurn = turnQueue.then(async () => {
+    try {
+      await job(emit);
+    } catch (err) {
+      emit({ type: "error", text: String(err?.message ?? err) });
+    }
+  });
+  turnQueue = myTurn;
+  myTurn.then(() => {
+    clearInterval(heartbeat);
+    emit({ type: "done" });
+    res.end();
+  });
+}
+
+function listProjects() {
+  const root = path.join(skycutHome(), "projects");
+  let activeSlug = null;
+  try {
+    activeSlug = getActiveProject().meta.slug;
+  } catch {
+    /* none active */
+  }
+  const out = [];
+  try {
+    for (const slug of fs.readdirSync(root)) {
+      const pj = path.join(root, slug, "project.json");
+      if (!fs.existsSync(pj)) continue;
+      try {
+        const meta = JSON.parse(fs.readFileSync(pj, "utf8"));
+        out.push({
+          slug: meta.slug,
+          name: meta.name,
+          sourcePath: meta.sourcePath,
+          mounted: fs.existsSync(meta.sourcePath),
+          active: meta.slug === activeSlug,
+          created: meta.created,
+        });
+      } catch {
+        /* skip corrupt project.json */
+      }
+    }
+  } catch {
+    /* no projects dir yet */
+  }
+  return out.sort((a, b) => (b.created ?? "").localeCompare(a.created ?? ""));
+}
+
+/** Chat history is global, not per-project — archive it when the active project changes (same as /api/reset). */
+function onProjectActivated(prevSlug, project, how) {
+  if (prevSlug === project.meta.slug) return;
+  archiveChatState();
+  transcript.push({ type: "text", text: `📁 ${how} project **${project.meta.name}** — fresh chat (previous conversation archived).` });
+  saveChatState();
+}
+
+const readJson = (req) =>
+  new Promise((resolve, reject) => {
+    let body = "";
+    req.on("data", (c) => (body += c));
+    req.on("end", () => {
+      try {
+        resolve(JSON.parse(body || "{}"));
+      } catch (err) {
+        reject(err);
+      }
+    });
+  });
 
 /** Timeline JSON + clip metadata, shaped for the UI's timeline panel. */
 function timelineForUi(project, version) {
@@ -524,7 +611,17 @@ const server = https.createServer(
         const segments = db.prepare("SELECT COUNT(*) n FROM segments").get().n;
         db.close();
         res.writeHead(200, { "content-type": "application/json" });
-        res.end(JSON.stringify({ project: project.meta.name, clips, segments, versions: listVersions(project) }));
+        res.end(
+          JSON.stringify({
+            project: project.meta.name,
+            slug: project.meta.slug,
+            source_path: project.meta.sourcePath,
+            mounted: isSourceMounted(project),
+            clips,
+            segments,
+            versions: listVersions(project),
+          })
+        );
       } catch (err) {
         res.writeHead(500, { "content-type": "application/json" });
         res.end(JSON.stringify({ error: String(err?.message ?? err) }));
@@ -580,6 +677,160 @@ const server = https.createServer(
           .sort((a, b) => b.mtime - a.mtime);
         res.writeHead(200, { "content-type": "application/json" });
         res.end(JSON.stringify({ project: project.meta.name, renders }));
+      } catch (err) {
+        res.writeHead(500, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: String(err?.message ?? err) }));
+      }
+    } else if (req.method === "GET" && pathname === "/api/projects") {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ projects: listProjects(), uploadsRoot: UPLOADS_ROOT }));
+    } else if (req.method === "POST" && pathname === "/api/project/switch") {
+      readJson(req)
+        .then(({ slug }) => {
+          let prev = null;
+          try {
+            prev = getActiveProject().meta.slug;
+          } catch {
+            /* none active */
+          }
+          const project = setActiveProject(String(slug ?? ""));
+          onProjectActivated(prev, project, "Switched to");
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end(JSON.stringify({ ok: true, project: project.meta.name, slug: project.meta.slug }));
+        })
+        .catch((err) => {
+          res.writeHead(500, { "content-type": "application/json" });
+          res.end(JSON.stringify({ error: String(err?.message ?? err) }));
+        });
+    } else if (req.method === "POST" && pathname === "/api/project/init") {
+      readJson(req)
+        .then(({ source_path, name }) => {
+          let prev = null;
+          try {
+            prev = getActiveProject().meta.slug;
+          } catch {
+            /* none active */
+          }
+          const project = initProject(String(source_path ?? ""), name ? String(name) : undefined);
+          onProjectActivated(prev, project, "Opened");
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end(JSON.stringify({ ok: true, project: project.meta.name, slug: project.meta.slug, sourcePath: project.meta.sourcePath }));
+        })
+        .catch((err) => {
+          res.writeHead(500, { "content-type": "application/json" });
+          res.end(JSON.stringify({ error: String(err?.message ?? err) }));
+        });
+    } else if (req.method === "GET" && pathname === "/api/fs/volumes") {
+      try {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ volumes: listVolumes(), home: os.homedir() }));
+      } catch (err) {
+        res.writeHead(500, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: String(err?.message ?? err) }));
+      }
+    } else if (req.method === "GET" && pathname === "/api/fs/browse") {
+      // Read-only directory listing (shallow) — scan handles subfolders recursively later.
+      try {
+        const q = new URL(req.url, "https://x").searchParams;
+        const p = path.resolve(String(q.get("path") || os.homedir()));
+        if (!fs.statSync(p).isDirectory()) throw new Error("not a directory");
+        const dirs = [];
+        let videoCount = 0;
+        for (const ent of fs.readdirSync(p, { withFileTypes: true })) {
+          if (ent.name.startsWith(".")) continue;
+          try {
+            if (ent.isDirectory() || (ent.isSymbolicLink() && fs.statSync(path.join(p, ent.name)).isDirectory())) {
+              dirs.push(ent.name);
+            } else if (VIDEO_EXTS.has(path.extname(ent.name).toLowerCase())) {
+              videoCount++;
+            }
+          } catch {
+            /* dead symlink or unreadable entry */
+          }
+        }
+        dirs.sort((a, b) => a.localeCompare(b));
+        const parent = path.dirname(p);
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ path: p, parent: parent === p ? null : parent, dirs, videoCount }));
+      } catch (err) {
+        res.writeHead(500, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: String(err?.message ?? err) }));
+      }
+    } else if (req.method === "GET" && pathname === "/api/project/scan") {
+      sseJob(res, async (emit) => {
+        const project = getActiveProject();
+        emit({ type: "progress", done: 0, total: 0, message: "discovering clips…" });
+        const result = await scanFootage(project, (done, total, message) => emit({ type: "progress", done, total, message }));
+        let summary =
+          `Scanned ${result.clipCount} clips (${result.newClips} new, ${Math.round(result.totalDurationS)}s total), ` +
+          `${result.proxiesBuilt} proxies built, ${result.proxiesSkipped} already cached.`;
+        if (result.errors.length) summary += ` ${result.errors.length} failed.`;
+        emit({ type: "summary", text: summary });
+        transcript.push({ type: "text", text: `\u{1F4C1} ${summary} (from the footage panel)` });
+        saveChatState();
+      });
+    } else if (req.method === "GET" && pathname === "/api/project/analyze") {
+      const confirm = new URL(req.url, "https://x").searchParams.get("confirm") === "1";
+      sseJob(res, async (emit) => {
+        const project = getActiveProject();
+        const result = await analyzeFootage(project, createClaudeVision(), { confirm }, (done, total, message) =>
+          emit({ type: "progress", done, total, message })
+        );
+        if (result.needsConfirmation) {
+          emit({
+            type: "needs_confirmation",
+            pendingClips: result.pendingClips,
+            estimatedFrames: result.estimatedFrames,
+            estimatedTokens: result.estimatedTokens,
+            estimatedUsd: Math.round((result.estimatedTokens * PRICE_PER_M.input) / 1e6 * 100) / 100,
+          });
+          return;
+        }
+        let summary =
+          `Analyzed ${result.clipsAnalyzed} clips (${result.framesAnalyzed} frames), ${result.clipsSkipped} cached — ` +
+          `${result.segmentCount} segments in the footage graph.`;
+        if (result.errors.length) summary += ` ${result.errors.length} failed.`;
+        emit({ type: "summary", text: summary });
+        transcript.push({ type: "text", text: `\u{1F4C1} ${summary} (from the footage panel)` });
+        saveChatState();
+      });
+    } else if (req.method === "PUT" && pathname === "/api/upload") {
+      try {
+        const q = new URL(req.url, "https://x").searchParams;
+        const name = path.basename(String(q.get("name") || "")).replace(/[^A-Za-z0-9._-]/g, "_");
+        const ext = path.extname(name).toLowerCase();
+        if (!VIDEO_EXTS.has(ext)) {
+          res.writeHead(400, { "content-type": "application/json" });
+          res.end(JSON.stringify({ error: `unsupported file type '${ext || "none"}' — accepted: .mp4 .mov .mts .mkv` }));
+          req.resume();
+          return;
+        }
+        let dirName;
+        try {
+          dirName = slugify(String(q.get("project") || "uploads"));
+        } catch {
+          dirName = "uploads";
+        }
+        const dir = path.join(UPLOADS_ROOT, dirName);
+        fs.mkdirSync(dir, { recursive: true });
+        const finalPath = path.join(dir, name);
+        const tmpPath = path.join(dir, `.${name}.part`);
+        const out = fs.createWriteStream(tmpPath);
+        req.pipe(out);
+        out.on("finish", () => {
+          fs.renameSync(tmpPath, finalPath);
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end(JSON.stringify({ ok: true, file: name, dir, size: fs.statSync(finalPath).size }));
+        });
+        out.on("error", (err) => {
+          try {
+            fs.unlinkSync(tmpPath);
+          } catch {
+            /* already gone */
+          }
+          res.writeHead(500, { "content-type": "application/json" });
+          res.end(JSON.stringify({ error: String(err?.message ?? err) }));
+        });
       } catch (err) {
         res.writeHead(500, { "content-type": "application/json" });
         res.end(JSON.stringify({ error: String(err?.message ?? err) }));

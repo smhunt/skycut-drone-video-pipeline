@@ -67,6 +67,29 @@
   .track audio { height:30px; width:180px; }
   .track button { background:none; border:1px solid var(--accent); color:var(--accent); border-radius:8px; padding:4px 10px; cursor:pointer; font-size:12.5px; white-space:nowrap; }
   .track button:disabled { border-color:var(--border); color:var(--dim); cursor:default; }
+  /* ---- footage panel ---- */
+  .fp { align-self:flex-start; width:min(760px,100%); background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:12px 14px; display:flex; flex-direction:column; gap:10px; }
+  .fp h3 { font-size:14px; }
+  .fp .sec { border-top:1px solid var(--border); padding-top:10px; display:flex; flex-direction:column; gap:8px; }
+  .fp .seclabel { color:var(--dim); font-size:11.5px; text-transform:uppercase; letter-spacing:1px; }
+  .fp .proj { display:flex; align-items:center; gap:10px; font-size:13.5px; padding:3px 0; }
+  .fp .proj .meta { flex:1; min-width:0; }
+  .fp .proj .p { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--dim); font-size:12px; }
+  .fp button.act { background:none; border:1px solid var(--accent); color:var(--accent); border-radius:8px; padding:4px 10px; cursor:pointer; font-size:12.5px; white-space:nowrap; }
+  .fp button.act:disabled { border-color:var(--border); color:var(--dim); cursor:default; }
+  .fp .crumbs, .fp .vols { display:flex; gap:6px; flex-wrap:wrap; font-size:12.5px; align-items:center; }
+  .fp .crumbs button, .fp .dirs button, .fp .vols button { background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:8px; padding:4px 10px; cursor:pointer; font-size:12.5px; }
+  .fp .crumbs button:hover, .fp .dirs button:hover, .fp .vols button:hover { border-color:var(--dim); }
+  .fp .dirs { display:flex; gap:6px; flex-wrap:wrap; max-height:150px; overflow-y:auto; }
+  .fp .pname { background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:6px 10px; color:var(--text); font-size:13px; outline:none; }
+  .fp .drop { border:1.5px dashed var(--border); border-radius:10px; padding:18px; text-align:center; color:var(--dim); font-size:13px; cursor:pointer; }
+  .fp .drop.over { border-color:var(--accent); color:var(--accent); }
+  .fp .jbar { height:6px; background:var(--border); border-radius:3px; overflow:hidden; display:none; }
+  .fp .jbar > div { height:100%; background:var(--accent); width:0%; transition:width .3s; }
+  .fp .jmsg { color:var(--dim); font-size:12.5px; min-height:16px; }
+  .fp .badge2 { font-size:11px; border:1px solid var(--border); border-radius:6px; padding:1px 6px; color:var(--dim); white-space:nowrap; }
+  .fp .badge2.ok { color:var(--ok); border-color:var(--ok); }
+  .fp .badge2.warn { color:#c9a227; border-color:#c9a227; }
   /* ---- timeline panel ---- */
   .tl { align-self:flex-start; width:min(860px,100%); background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:12px 14px; }
   .tl .head { display:flex; align-items:center; gap:10px; margin-bottom:8px; flex-wrap:wrap; }
@@ -127,6 +150,7 @@
   <h1>🎬 SkyCut Chat</h1>
   <span class="badge" id="verbadge"></span>
   <span class="sub"><span id="projstats">loading project…</span><span id="sessioncost"></span></span>
+  <button id="footage">📁 Footage</button>
   <button id="timeline">🎞️ Timeline</button>
   <button id="music">🎵 Music</button>
   <button id="renders">Renders</button>
@@ -396,6 +420,221 @@ document.getElementById("music").addEventListener("click", async () => {
   input.focus();
 });
 
+// ---- footage panel: open a folder, upload clips, switch projects, scan + analyze ----
+document.getElementById("footage").addEventListener("click", async () => {
+  const panel = document.createElement("div");
+  panel.className = "fp";
+  panel.innerHTML = `<h3>📁 Footage</h3>
+    <div class="cur"></div>
+    <div class="jbar"><div></div></div>
+    <div class="jmsg"></div>
+    <div class="sec"><div class="seclabel">Projects</div><div class="plist"></div></div>
+    <div class="sec"><div class="seclabel">Open a local folder</div><div class="vols"></div><div class="crumbs"></div><div class="dirs"></div><div class="use"></div></div>
+    <div class="sec"><div class="seclabel">Upload clips</div>
+      <input class="pname" placeholder="Project name for the upload (default: Uploads)">
+      <div class="drop">Drop video files here, or click to choose — .mp4 .mov .mts .mkv → ~/SkyCut/uploads</div>
+      <input type="file" class="fpick" multiple accept=".mp4,.mov,.mts,.mkv,.MP4,.MOV,.MTS,.MKV" style="display:none">
+    </div>
+    <div style="color:var(--dim);font-size:12px">source folders stay read-only — proxies, frames and the graph land in ~/SkyCut/projects · chat waits while a scan or analysis runs</div>`;
+  log.appendChild(panel); log.scrollTop = log.scrollHeight;
+  const $ = (s) => panel.querySelector(s);
+  let busy = false, activeSlug = null;
+
+  const setBusy = (b, msg = "") => {
+    busy = b;
+    $(".jbar").style.display = b ? "block" : "none";
+    if (!b) $(".jbar > div").style.width = "0%";
+    $(".jmsg").textContent = msg;
+    panel.querySelectorAll("button.act").forEach((x) => (x.disabled = b));
+  };
+
+  // fetch-based SSE reader (EventSource would auto-reconnect and re-trigger the job)
+  async function sseRun(url) {
+    const res = await fetch(url);
+    if (!res.ok) return { error: "HTTP " + res.status };
+    const reader = res.body.getReader(), dec = new TextDecoder();
+    let buf = "";
+    const result = {};
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let i;
+      while ((i = buf.indexOf("\n\n")) !== -1) {
+        const chunk = buf.slice(0, i); buf = buf.slice(i + 2);
+        if (!chunk.startsWith("data: ")) continue;
+        const ev = JSON.parse(chunk.slice(6));
+        if (ev.type === "progress") {
+          if (ev.total) $(".jbar > div").style.width = Math.round((ev.done / ev.total) * 100) + "%";
+          $(".jmsg").textContent = (ev.total ? `${ev.done}/${ev.total} — ` : "") + (ev.message ?? "");
+        } else if (ev.type === "summary") result.summary = ev.text;
+        else if (ev.type === "needs_confirmation") result.confirm = ev;
+        else if (ev.type === "error") result.error = ev.text;
+      }
+    }
+    return result;
+  }
+
+  async function runScan() {
+    if (busy) return;
+    setBusy(true, "scanning — chat resumes when this finishes…");
+    const r = await sseRun("/api/project/scan");
+    setBusy(false);
+    if (r.error) addMsg("err", "Scan failed: " + r.error);
+    else addMsg("bot", `📁 ${r.summary ?? "Scan finished."} Next: **Analyze** in the footage panel to build the searchable footage graph.`);
+    refreshAll();
+  }
+
+  async function runAnalyze(confirm = false) {
+    if (busy && !confirm) return;
+    setBusy(true, "analyzing — Claude vision is scoring keyframes…");
+    const r = await sseRun("/api/project/analyze" + (confirm ? "?confirm=1" : ""));
+    setBusy(false);
+    if (r.error) { addMsg("err", "Analyze failed: " + r.error); refreshAll(); return; }
+    if (r.confirm) {
+      const c = r.confirm;
+      const row = document.createElement("div");
+      row.style.cssText = "display:flex;gap:8px;align-items:center;flex-wrap:wrap";
+      row.innerHTML = `<span>~${c.estimatedFrames.toLocaleString()} frames across ${c.pendingClips} clips ≈ <b>$${c.estimatedUsd}</b> of vision input.</span>`;
+      const go = document.createElement("button"); go.className = "act"; go.textContent = `Analyze (~$${c.estimatedUsd})`;
+      const no = document.createElement("button"); no.className = "act"; no.textContent = "Cancel";
+      go.addEventListener("click", () => { row.remove(); runAnalyze(true); });
+      no.addEventListener("click", () => { row.remove(); $(".jmsg").textContent = "analysis cancelled"; });
+      row.append(go, no);
+      $(".jmsg").textContent = ""; $(".jmsg").appendChild(row);
+      return;
+    }
+    addMsg("bot", `📁 ${r.summary ?? "Analysis finished."} Ready to cut — describe the video you want in chat.`);
+    refreshAll();
+  }
+
+  async function refreshCur() {
+    try {
+      const s = await (await fetch("/api/status")).json();
+      if (s.error) throw new Error(s.error);
+      activeSlug = s.slug ?? null;
+      $(".cur").innerHTML = `<div class="proj"><div class="meta">
+          <div><b>${esc(s.project)}</b> <span class="badge2 ${s.mounted ? "ok" : "warn"}">${s.mounted ? "source mounted" : "source unplugged"}</span></div>
+          <div class="p">${esc(s.source_path ?? "")} · ${s.clips} clips · ${s.segments} segments</div></div>
+        <button class="act scan">Scan</button><button class="act analyze">Analyze</button></div>`;
+      $(".cur .scan").addEventListener("click", runScan);
+      $(".cur .analyze").addEventListener("click", () => runAnalyze(false));
+    } catch {
+      activeSlug = null;
+      $(".cur").innerHTML = '<div style="color:var(--dim);font-size:13px">No active project yet — open a folder or upload clips below.</div>';
+    }
+  }
+
+  async function refreshProjects() {
+    try {
+      const d = await (await fetch("/api/projects")).json();
+      const box = $(".plist"); box.innerHTML = "";
+      if (!d.projects?.length) { box.innerHTML = '<div style="color:var(--dim);font-size:13px">none yet</div>'; return; }
+      d.projects.forEach((p) => {
+        const row = document.createElement("div");
+        row.className = "proj";
+        row.innerHTML = `<div class="meta"><div><b>${esc(p.name)}</b> ${p.active ? '<span class="badge2 ok">active</span>' : ""}${p.mounted ? "" : ' <span class="badge2 warn">unplugged</span>'}</div>
+          <div class="p">${esc(p.sourcePath)}</div></div>` + (p.active ? "" : '<button class="act">Switch</button>');
+        if (!p.active) row.querySelector("button").addEventListener("click", async () => {
+          if (busy) return;
+          const r = await (await fetch("/api/project/switch", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ slug: p.slug }) })).json();
+          if (r.error) return addMsg("err", "Switch failed: " + r.error);
+          log.innerHTML = ""; // server archived the chat — start the view fresh too
+          addMsg("bot", `📁 Switched to **${r.project}**. Fresh chat — the previous conversation is archived.`);
+          refreshStats();
+        });
+        box.appendChild(row);
+      });
+    } catch { /* panel stays usable */ }
+  }
+
+  let curPath = null;
+  async function browse(p) {
+    try {
+      const r = await (await fetch("/api/fs/browse" + (p ? "?path=" + encodeURIComponent(p) : ""))).json();
+      if (r.error) throw new Error(r.error);
+      curPath = r.path;
+      const crumbs = $(".crumbs"); crumbs.innerHTML = "";
+      const mk = (label, target) => { const b = document.createElement("button"); b.textContent = label; b.addEventListener("click", () => browse(target)); crumbs.appendChild(b); };
+      mk("/", "/");
+      let acc = "";
+      r.path.split("/").filter(Boolean).forEach((seg) => { acc += "/" + seg; mk(seg, acc); });
+      const dirs = $(".dirs"); dirs.innerHTML = "";
+      r.dirs.forEach((d) => { const b = document.createElement("button"); b.textContent = "📂 " + d; b.addEventListener("click", () => browse(r.path + "/" + d)); dirs.appendChild(b); });
+      if (!r.dirs.length) dirs.innerHTML = '<span style="color:var(--dim);font-size:12.5px">no subfolders</span>';
+      $(".use").innerHTML = `<button class="act">Use this folder as footage source (${r.videoCount} video file${r.videoCount === 1 ? "" : "s"} here — subfolders get scanned too)</button>`;
+      $(".use button").addEventListener("click", () => openFolder(r.path));
+    } catch (e) { addMsg("err", "Browse failed: " + e.message); }
+  }
+
+  async function openFolder(p, name) {
+    if (busy) return;
+    setBusy(true, "opening project…");
+    const r = await (await fetch("/api/project/init", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ source_path: p, name }) })).json();
+    if (r.error) { setBusy(false); return addMsg("err", "Couldn't open folder: " + r.error); }
+    setBusy(false);
+    if (activeSlug && r.slug !== activeSlug) {
+      log.innerHTML = ""; // server archived the chat for the project change
+      addMsg("bot", `📁 Opened **${r.project}** (${r.sourcePath}). Fresh chat — scanning now…`);
+    } else {
+      addMsg("bot", `📁 Opened **${r.project}** (${r.sourcePath}). Scanning now…`);
+    }
+    refreshStats();
+    await runScan();
+  }
+
+  // ---- upload ----
+  const drop = $(".drop"), fpick = $(".fpick");
+  drop.addEventListener("click", () => fpick.click());
+  drop.addEventListener("dragover", (e) => { e.preventDefault(); drop.classList.add("over"); });
+  drop.addEventListener("dragleave", () => drop.classList.remove("over"));
+  drop.addEventListener("drop", (e) => { e.preventDefault(); drop.classList.remove("over"); uploadFiles([...e.dataTransfer.files]); });
+  fpick.addEventListener("change", () => { uploadFiles([...fpick.files]); fpick.value = ""; });
+
+  async function uploadFiles(files) {
+    files = files.filter((f) => /\.(mp4|mov|mts|mkv)$/i.test(f.name));
+    if (!files.length) return addMsg("err", "No supported video files in that selection (.mp4 .mov .mts .mkv).");
+    if (busy) return;
+    const name = $(".pname").value.trim() || "Uploads";
+    setBusy(true, "uploading…");
+    let dir = null;
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i];
+      const r = await new Promise((resolve) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("PUT", `/api/upload?project=${encodeURIComponent(name)}&name=${encodeURIComponent(f.name)}`);
+        xhr.upload.onprogress = (e) => {
+          if (!e.lengthComputable) return;
+          $(".jbar").style.display = "block";
+          $(".jbar > div").style.width = Math.round(((i + e.loaded / e.total) / files.length) * 100) + "%";
+          $(".jmsg").textContent = `uploading ${f.name} (${i + 1}/${files.length})`;
+        };
+        xhr.onload = () => { try { resolve(JSON.parse(xhr.responseText)); } catch { resolve({ error: "HTTP " + xhr.status }); } };
+        xhr.onerror = () => resolve({ error: "network error" });
+        xhr.send(f);
+      });
+      if (r.error) { setBusy(false); return addMsg("err", `Upload of ${f.name} failed: ${r.error}`); }
+      dir = r.dir;
+    }
+    setBusy(false);
+    addMsg("bot", `📁 Uploaded ${files.length} clip${files.length === 1 ? "" : "s"} to \`${dir}\`.`);
+    await openFolder(dir, name);
+  }
+
+  function refreshAll() { refreshCur(); refreshProjects(); refreshStats(); }
+
+  refreshCur(); refreshProjects();
+  try {
+    const v = await (await fetch("/api/fs/volumes")).json();
+    const vols = $(".vols");
+    const mk = (label, target) => { const b = document.createElement("button"); b.textContent = label; b.addEventListener("click", () => browse(target)); vols.appendChild(b); };
+    mk("🏠 Home", v.home);
+    (v.volumes ?? []).forEach((vol) => mk(`💾 ${vol.path.split("/").pop()} (${vol.freeGb ?? "?"} GB free)`, vol.path));
+    browse(v.home);
+  } catch { /* browse row stays empty */ }
+  log.scrollTop = log.scrollHeight;
+});
+
 document.getElementById("renders").addEventListener("click", async () => {
   try {
     const data = await (await fetch("/api/renders")).json();
@@ -412,8 +651,13 @@ document.getElementById("reset").addEventListener("click", async () => {
 });
 
 // ---- app metadata (About modal) ----
-const APP_VERSION = "0.5.0";
+const APP_VERSION = "0.6.0";
 const CHANGELOG = [
+  { version: "0.6.0", date: "2026-09-18", changes: [
+    "Footage panel (📁) — browse volumes and local folders and open one as a project source, or drag-and-drop video uploads into ~/SkyCut/uploads",
+    "Scan and analyze from the browser with live progress; the vision cost gate shows an estimated $ before large runs",
+    "Project list with one-click switching (works with the source drive unplugged); switching archives the chat so context doesn't leak between projects",
+  ]},
   { version: "0.5.0", date: "2026-09-18", changes: [
     "Retrim by dragging shot edges — grab either edge of a shot in the timeline panel, drag to adjust in/out points (clamped to the source clip), release to save a new version",
     "Keyframe thumbnails — timeline shots show the analysis keyframe nearest their in-point as a background image",
@@ -438,7 +682,8 @@ const CHANGELOG = [
   ]},
 ];
 const HOW_IT_WORKS = [
-  { icon: "🔍", title: "Scan & analyze (already done for this project)", text: "Footage is probed and proxied, then Claude vision scores a frame every 4 seconds — subjects, camera movement, exposure, aesthetic 0–10 — into a searchable footage graph." },
+  { icon: "📁", title: "Point it at footage", text: "Open the Footage panel: browse to a folder or drive of drone video (kept strictly read-only), drag-and-drop uploads, or switch between existing projects." },
+  { icon: "🔍", title: "Scan & analyze", text: "Footage is probed and proxied, then Claude vision scores a frame every 4 seconds — subjects, camera movement, exposure, aesthetic 0–10 — into a searchable footage graph. Big runs show a cost estimate first." },
   { icon: "💬", title: "Describe the cut you want", text: "The AI director assembles a timeline from the best matching segments. Every proposal and every edit is saved as a new immutable version — nothing is ever lost." },
   { icon: "🎞️", title: "Preview & iterate", text: "Previews render locally at 720p in a minute or two and embed right here. Ask for changes in chat, or open the Timeline panel and drag shots to reorder — or drag a shot's edges to retrim it — yourself." },
   { icon: "🎵", title: "Add music", text: "Search royalty-free tracks, preview them, add to your library, and say which version to put them on. The bed is loudness-normalized, looped to length, and faded out." },
@@ -450,7 +695,6 @@ const ROADMAP = [
   ]},
   { category: "Planned", icon: "📋", items: [
     { t: "Text-overlay editor (titles, attribution lines)", pri: "medium" },
-    { t: "Multi-project switcher in the header", pri: "medium" },
     { t: "Export cut as EDL / FCPXML for finishing in an NLE", pri: "low" },
   ]},
 ];
