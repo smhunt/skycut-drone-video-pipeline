@@ -587,7 +587,8 @@ function renderStrip(strip, data, { diff, draggable, onReorder, onRetrim, onSele
             const d = (ev.clientX - startX) * srcPerPx;
             if (side === "l") in_s = Math.round(Math.min(Math.max(0, c.in_s + d), out_s - MIN_SRC_S) * 10) / 10;
             else out_s = Math.round(Math.max(Math.min(c.out_s + d, src?.duration_s ?? Infinity), in_s + MIN_SRC_S) * 10) / 10;
-            moved = in_s !== c.in_s || out_s !== c.out_s;
+            // Threshold, not equality: sub-0.1s source values would otherwise make a 1px jitter save a version.
+            moved = Math.abs(in_s - c.in_s) >= 0.05 || Math.abs(out_s - c.out_s) >= 0.05;
             el.style.flexGrow = String(Math.max((out_s - in_s) / c.speed, 0.5));
             label.textContent = `${in_s}–${out_s}s of ${src ? fmtS(src.duration_s) : "?"}`;
           };
