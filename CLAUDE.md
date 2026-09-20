@@ -8,6 +8,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Current state: fully built.** All 8 spec phases shipped 2026-07-05 (`progress.md` has the per-phase log), and a local web chat UI has grown on top (current version: see `CHANGELOG.md` / `APP_VERSION`): `npm run web` → https://dev.ecoworks.ca:3080 (agent chat, footage onboarding panel, visual timeline panel with scrubber sync, music, renders; reads `ANTHROPIC_API_KEY` from env or the gitignored `.env`), media file server on :5502 — both ports registered in `~/.claude/PORTS.md`. New work comes from the roadmap (the `ROADMAP` const in `web/index.html`, shown in the app's About modal), tracked in `CHANGELOG.md` with semver bumps (`package.json` + `APP_VERSION` + `CHANGELOG` const). `prompt_plan.md` is the original spec — background reference, not a to-do list.
 
+## Parallel Sessions — Coordination Protocol
+
+Multiple Claude sessions work on this repo concurrently. To avoid stepping on each other:
+
+1. **Start every work unit with `git fetch && git status`.** If `origin/main` is ahead, pull (rebase) before touching anything. Never build on a stale HEAD.
+2. **Commit + push after every working increment** — small, complete commits. Uncommitted work held across turns is how sessions collide. If you find uncommitted changes you didn't make, do NOT revert or absorb them silently: commit them on their own with a `wip:` prefix or ask.
+3. **One version bump per shipped feature**, bumped in the same commit as the feature: `package.json` + `package-lock.json` + `APP_VERSION` + `CHANGELOG` const + `CHANGELOG.md`. If another session shipped since you started, re-check the current version before choosing yours.
+4. **The dev server on :3080 is shared state.** Before killing/restarting it, check you're the reason it needs restarting (`lsof -i :3080`). Always `npm run build` first (the server imports `dist/`), and restart with the same pattern (`nohup npm run web > <log> 2>&1 &`; the key loads from `.env`). Leave it running when done.
+5. **`~/SkyCut` is shared runtime state** (projects, chat, uploads). Don't delete workspaces, archive chat, or switch the active project except as part of what the user asked; anything you create for testing, clean up and restore the active project + chat state when finished.
+6. **The roadmap is the queue.** Claim work by moving an item to "In Progress" in the `ROADMAP` const (and pushing that) before building it; ship = move it out + changelog entry.
+
 ## Commands
 
 Defined at Phase 0 scaffold (check `package.json` for the current set):

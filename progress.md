@@ -117,4 +117,4 @@
 
 The spec's deliverable is done; this file's phase log ends here. Development since has been the local web chat UI (`npm run web` → https://dev.ecoworks.ca:3080, media file server on :5502), tracked per-version in **CHANGELOG.md** and the in-app About modal. The living roadmap is the `ROADMAP` const in `web/index.html`.
 
-Era highlights: v0.2.0 chat studio with SSE tool progress · v0.3.0 royalty-free music, cost tracking, Plyr players · v0.4.0 visual timeline panel with drag-reorder and version compare · v0.5.0 edge-drag retrim and keyframe thumbnails (57 tests).
+Era highlights: v0.2.0 chat studio with SSE tool progress · v0.3.0 royalty-free music, cost tracking, Plyr players · v0.4.0 visual timeline panel with drag-reorder and version compare · v0.5.0 edge-drag retrim and keyframe thumbnails · v0.6.0 footage panel (folder browser, uploads, scan/analyze from the UI, project switching) · v0.7.0 scrubber sync between strip and player (59 tests).

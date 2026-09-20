@@ -48,7 +48,7 @@ The human stays in the loop at two points by design: reviewing the proposed time
 | Processes | `execa` | every ffmpeg/ffprobe call logged to `logs/ffmpeg.log` |
 | AI | `@anthropic-ai/sdk`, `claude-sonnet-4-6` | vision frame analysis + director cut proposal |
 | Video | ffmpeg / ffprobe | `h264_videotoolbox` (preview), `hevc_videotoolbox` (final); libx264 fallback where videotoolbox is unavailable |
-| Tests | vitest | 57 tests; AI clients injected via interfaces and mocked |
+| Tests | vitest | 59 tests; AI clients injected via interfaces and mocked |
 | Web UI | vanilla JS single file + Plyr | `web/index.html` (UI) + `web/server.mjs` (agent/API); no build step |
 
 ## Source Layout
@@ -110,6 +110,8 @@ Stage 1 normalizes each timeline clip into an intermediate (trim → speed via `
 
 ### Web UI: one code path for edits, same-origin media
 The chat server runs its own Claude agent in-process against `dist/core` (rebuild before `npm run web`). Chat-agent edits and timeline-panel edits (drag reorder, edge-drag retrim) go through the same `applyEditsAndSave` — validate, then save an immutable `v<N+1>` — so both surfaces share one version history, and panel edits are logged into the chat transcript. All media (renders, proxies, keyframe thumbnails, music) is served **same-origin** at `/files/*` with HTTP Range support; cross-origin serving broke inline players whenever the second origin's cert exception was missing. Tool activity streams over SSE with per-item progress; API spend is tracked per turn and per session.
+
+Footage onboarding lives in the same server: read-only volume/folder browsing (`/api/fs/*`), project init/switch (`/api/project/*` — switching archives the global chat so context doesn't leak between projects), uploads into `~/SkyCut/uploads/<project>/`, and scan/analyze as SSE jobs **serialized behind the chat turn queue** so a panel scan can never tear `footage.db` under a mid-turn agent. The timeline panel's scrubber sync maps player output-time to strip position through per-shot effective durations minus xfade overlaps (a 100 ms interval, not rAF, so it keeps tracking in backgrounded tabs).
 
 ## Workspace Layout (per project)
 
