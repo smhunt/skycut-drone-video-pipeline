@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **SkyCut** — a local-first MCP server (stdio, TypeScript) that converts raw drone footage into polished marketing video cuts via an agent-driven pipeline: scan → analyze (vision) → footage graph → propose cut → human approve → render.
 
-**Current state: fully built.** All 8 spec phases shipped 2026-07-05 (`progress.md` has the per-phase log), and a local web chat UI has grown on top (v0.5.0): `npm run web` → https://dev.ecoworks.ca:3080 (agent chat, visual timeline panel, music, renders; needs `ANTHROPIC_API_KEY` in env), media file server on :5502 — both ports registered in `~/.claude/PORTS.md`. New work comes from the roadmap (the `ROADMAP` const in `web/index.html`, shown in the app's About modal), tracked in `CHANGELOG.md` with semver bumps (`package.json` + `APP_VERSION` + `CHANGELOG` const). `prompt_plan.md` is the original spec — background reference, not a to-do list.
+**Current state: fully built.** All 8 spec phases shipped 2026-07-05 (`progress.md` has the per-phase log), and a local web chat UI has grown on top (current version: see `CHANGELOG.md` / `APP_VERSION`): `npm run web` → https://dev.ecoworks.ca:3080 (agent chat, footage onboarding panel, visual timeline panel with scrubber sync, music, renders; reads `ANTHROPIC_API_KEY` from env or the gitignored `.env`), media file server on :5502 — both ports registered in `~/.claude/PORTS.md`. New work comes from the roadmap (the `ROADMAP` const in `web/index.html`, shown in the app's About modal), tracked in `CHANGELOG.md` with semver bumps (`package.json` + `APP_VERSION` + `CHANGELOG` const). `prompt_plan.md` is the original spec — background reference, not a to-do list.
 
 ## Commands
 

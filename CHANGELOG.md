@@ -2,6 +2,11 @@
 
 All notable changes to SkyCut are documented here. Versioning follows [semver](https://semver.org/).
 
+## [0.7.0] - 2026-09-20
+
+### Added
+- **Scrubber sync** — the timeline panel now carries a playhead that tracks the newest on-page player whose render version matches the strip. Output time maps through per-shot effective durations minus xfade overlaps, so the playhead crosses shot boundaries exactly when the picture does. Clicking a shot seeks that player to the shot's start (the other direction of the sync). Hidden in compare mode and when no matching player is on the page.
+
 ## [0.6.0] - 2026-09-18
 
 ### Added
