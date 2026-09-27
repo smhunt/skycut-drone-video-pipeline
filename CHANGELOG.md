@@ -2,6 +2,11 @@
 
 All notable changes to SkyCut are documented here. Versioning follows [semver](https://semver.org/).
 
+## [0.7.1] - 2026-09-23
+
+### Fixed
+- **Mobile uploads** — `server.requestTimeout` disabled (Node's 300s default destroyed any upload taking over 5 minutes, e.g. a multi-GB phone video over WiFi; headers keep a 60s deadline); the client retries an interrupted upload once automatically and explains that the page must stay foregrounded; every upload is logged server-side (start with size and source address, done, error) so failures are diagnosable; aborted uploads clean up their `.part` file
+
 ## [0.7.0] - 2026-09-20
 
 ### Added

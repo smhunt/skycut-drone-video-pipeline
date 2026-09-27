@@ -815,21 +815,37 @@ const server = https.createServer(
         fs.mkdirSync(dir, { recursive: true });
         const finalPath = path.join(dir, name);
         const tmpPath = path.join(dir, `.${name}.part`);
+        console.log(`[upload] start ${name} (${req.headers["content-length"] ?? "?"} bytes) from ${req.socket.remoteAddress}`);
         const out = fs.createWriteStream(tmpPath);
         req.pipe(out);
-        out.on("finish", () => {
-          fs.renameSync(tmpPath, finalPath);
-          res.writeHead(200, { "content-type": "application/json" });
-          res.end(JSON.stringify({ ok: true, file: name, dir, size: fs.statSync(finalPath).size }));
-        });
-        out.on("error", (err) => {
+        // A phone upload can abort mid-body (app backgrounded, WiFi drop) — log it and clean up the .part.
+        req.on("error", (err) => {
+          console.log(`[upload] request error for ${name}: ${err?.message ?? err}`);
+          out.destroy();
           try {
             fs.unlinkSync(tmpPath);
           } catch {
             /* already gone */
           }
-          res.writeHead(500, { "content-type": "application/json" });
-          res.end(JSON.stringify({ error: String(err?.message ?? err) }));
+        });
+        out.on("finish", () => {
+          fs.renameSync(tmpPath, finalPath);
+          const size = fs.statSync(finalPath).size;
+          console.log(`[upload] done ${name} (${size} bytes)`);
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end(JSON.stringify({ ok: true, file: name, dir, size }));
+        });
+        out.on("error", (err) => {
+          console.log(`[upload] write error for ${name}: ${err?.message ?? err}`);
+          try {
+            fs.unlinkSync(tmpPath);
+          } catch {
+            /* already gone */
+          }
+          if (!res.headersSent) {
+            res.writeHead(500, { "content-type": "application/json" });
+            res.end(JSON.stringify({ error: String(err?.message ?? err) }));
+          }
         });
       } catch (err) {
         res.writeHead(500, { "content-type": "application/json" });
@@ -882,4 +898,8 @@ const server = https.createServer(
 );
 
 loadChatState();
+// Node's default requestTimeout (300s) destroys long uploads — a multi-GB phone video
+// over WiFi easily exceeds it. Headers still get a deadline; bodies can take as long as they take.
+server.requestTimeout = 0;
+server.headersTimeout = 60_000;
 server.listen(PORT, () => console.log(`SkyCut Chat: https://dev.ecoworks.ca:${PORT}`));
